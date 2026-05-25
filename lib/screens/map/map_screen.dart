@@ -9,8 +9,10 @@ import '../../core/constants.dart';
 import '../../models/btk_record.dart';
 import '../../providers/btk_provider.dart';
 import '../../providers/map_provider.dart';
+import '../../providers/raster_provider.dart';
 import '../form/btk_form_screen.dart';
 import '../pdf/pdf_viewer_screen.dart';
+import '../raster/raster_manager_screen.dart';
 import '../records/records_screen.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/layer_control_panel.dart';
@@ -26,6 +28,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   bool _addingPoint = false;
   List<List<LatLng>> _boundaryPolygons = [];
+  // Cache: raster id → loaded image bytes
+  final Map<String, Uint8List> _rasterCache = {};
 
   @override
   void initState() {
@@ -57,6 +61,41 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   List<LatLng> _parseRing(List<dynamic> ring) =>
       ring.map((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())).toList();
+
+  List<Widget> _buildRasterLayers() {
+    final rasters = ref.watch(rasterProvider);
+    final widgets = <Widget>[];
+    for (final r in rasters) {
+      if (!r.visible) continue;
+      final bytes = _rasterCache[r.id];
+      if (bytes == null) {
+        // Trigger async load; once done, setState rebuilds the layer
+        ref.read(rasterProvider.notifier).loadImageBytes(r).then((b) {
+          if (b != null && mounted) {
+            setState(() => _rasterCache[r.id] = b);
+          }
+        });
+        continue;
+      }
+      widgets.add(
+        Opacity(
+          opacity: r.opacity,
+          child: OverlayImageLayer(
+            overlayImages: [
+              OverlayImage(
+                bounds: LatLngBounds(
+                  LatLng(r.southLat, r.westLon),
+                  LatLng(r.northLat, r.eastLon),
+                ),
+                imageProvider: MemoryImage(bytes),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
 
   Future<void> _goToMyLocation() async {
     LocationPermission perm = await Geolocator.checkPermission();
@@ -126,6 +165,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           ))
                       .toList(),
                 ),
+              // Local raster overlays
+              ..._buildRasterLayers(),
               if (layers.showPoints)
                 MarkerLayer(
                   markers: records.map((r) {
@@ -211,6 +252,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   icon: Icons.menu_book_outlined,
                   onTap: () => Navigator.push(
                       context, MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
+                ),
+                const SizedBox(height: 8),
+                _MapButton(
+                  icon: Icons.satellite_alt_outlined,
+                  onTap: () => Navigator.push(
+                      context, MaterialPageRoute(builder: (_) => const RasterManagerScreen())),
                 ),
               ],
             ),
