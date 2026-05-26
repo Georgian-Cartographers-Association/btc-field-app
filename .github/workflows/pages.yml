@@ -33,7 +33,7 @@ jobs:
         run: flutter gen-l10n
 
       - name: Build Web
-        run: flutter build web --release --base-href /btk-field-app/
+        run: flutter build web --release --base-href /
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
