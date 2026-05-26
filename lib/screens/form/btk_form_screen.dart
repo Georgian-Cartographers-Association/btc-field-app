@@ -266,7 +266,7 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
         body: _pdfOpen
             ? _SplitView(
                 form: _buildTabView(),
-                pdfButton: () => setState(() => _pdfOpen = false),
+                onClose: () => setState(() => _pdfOpen = false),
               )
             : _buildTabView(),
         floatingActionButton: _pdfOpen
@@ -295,70 +295,196 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
   }
 }
 
-// ─── Split view ──────────────────────────────────────────────────────────────
+// ─── Split view (resizable) ───────────────────────────────────────────────────
 
-class _SplitView extends StatelessWidget {
+class _SplitView extends StatefulWidget {
   final Widget form;
-  final VoidCallback pdfButton;
+  final VoidCallback onClose;
 
-  const _SplitView({required this.form, required this.pdfButton});
+  const _SplitView({required this.form, required this.onClose});
+
+  @override
+  State<_SplitView> createState() => _SplitViewState();
+}
+
+class _SplitViewState extends State<_SplitView> {
+  // Wide layout: fraction of width given to the form (left panel)
+  double _wideFormFraction = 0.5;
+
+  // Narrow layout: fraction of screen height the PDF panel occupies
+  double _narrowHeightFraction = 0.62;
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width > 700;
-    if (isWide) {
-      return Row(
-        children: [
-          Expanded(flex: 1, child: form),
-          const VerticalDivider(width: 1),
-          const Expanded(flex: 1, child: PdfViewerScreen(embedded: true)),
-        ],
-      );
-    }
+    final size = MediaQuery.of(context).size;
+    final isWide = size.width > 700;
+    return isWide ? _buildWide(size) : _buildNarrow(size);
+  }
+
+  // ── Wide: horizontal split with draggable divider ──────────────────────────
+  Widget _buildWide(Size size) {
+    final formFlex   = (_wideFormFraction * 1000).round().clamp(250, 750);
+    final pdfFlex    = (1000 - formFlex).clamp(250, 750);
+
+    return Row(
+      children: [
+        Flexible(flex: formFlex, child: widget.form),
+        // Draggable divider
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: (d) {
+            setState(() {
+              _wideFormFraction =
+                  (_wideFormFraction + d.delta.dx / size.width).clamp(0.25, 0.75);
+            });
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.resizeColumn,
+            child: Container(
+              width: 10,
+              color: Colors.grey.shade300,
+              child: Center(
+                child: Container(
+                  width: 3,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade500,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Flexible(flex: pdfFlex, child: const PdfViewerScreen(embedded: true)),
+      ],
+    );
+  }
+
+  // ── Narrow: full-width bottom panel with drag-to-resize ────────────────────
+  Widget _buildNarrow(Size size) {
+    final panelH = size.height * _narrowHeightFraction;
+
     return Stack(
       children: [
-        form,
+        widget.form,
         Positioned(
-          bottom: 80,
-          right: 16,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: panelH,
           child: Material(
-            elevation: 6,
-            borderRadius: BorderRadius.circular(16),
+            elevation: 10,
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(16)),
             clipBehavior: Clip.antiAlias,
-            child: SizedBox(
-              width: MediaQuery.of(context).size.width * 0.55,
-              height: MediaQuery.of(context).size.height * 0.5,
-              child: Column(
-                children: [
-                  Container(
+            child: Column(
+              children: [
+                // ── Header / drag area ───────────────────────────────────
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onVerticalDragUpdate: (d) {
+                    setState(() {
+                      _narrowHeightFraction =
+                          (_narrowHeightFraction - d.delta.dy / size.height)
+                              .clamp(0.28, 0.95);
+                    });
+                  },
+                  child: Container(
                     color: Theme.of(context).colorScheme.primary,
-                    child: Row(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          child: Text('მეთოდური მითითება',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600)),
+                        // Drag pill
+                        const SizedBox(height: 6),
+                        Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
                         ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close,
-                              color: Colors.white, size: 18),
-                          onPressed: pdfButton,
+                        // Title row
+                        Row(
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(14, 6, 0, 6),
+                              child: Text(
+                                'მეთოდური მითითება',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13),
+                              ),
+                            ),
+                            const Spacer(),
+                            // Quick-size buttons
+                            _HeaderBtn(
+                              icon: Icons.expand_less,
+                              tooltip: 'გადიდება',
+                              onTap: () => setState(() {
+                                _narrowHeightFraction =
+                                    (_narrowHeightFraction + 0.15)
+                                        .clamp(0.28, 0.95);
+                              }),
+                            ),
+                            _HeaderBtn(
+                              icon: Icons.expand_more,
+                              tooltip: 'შემცირება',
+                              onTap: () => setState(() {
+                                _narrowHeightFraction =
+                                    (_narrowHeightFraction - 0.15)
+                                        .clamp(0.28, 0.95);
+                              }),
+                            ),
+                            _HeaderBtn(
+                              icon: Icons.fullscreen,
+                              tooltip: 'სრული ეკრანი',
+                              onTap: () =>
+                                  setState(() => _narrowHeightFraction = 0.94),
+                            ),
+                            _HeaderBtn(
+                              icon: Icons.close,
+                              tooltip: 'დახურვა',
+                              onTap: widget.onClose,
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                  const Expanded(
-                      child: PdfViewerScreen(embedded: true)),
-                ],
-              ),
+                ),
+                // ── PDF content ──────────────────────────────────────────
+                const Expanded(child: PdfViewerScreen(embedded: true)),
+              ],
             ),
           ),
         ),
       ],
     );
   }
+}
+
+class _HeaderBtn extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _HeaderBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        icon: Icon(icon, color: Colors.white, size: 20),
+        tooltip: tooltip,
+        onPressed: onTap,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        constraints: const BoxConstraints(),
+      );
 }
