@@ -10,84 +10,90 @@ class LayerControlPanel extends ConsumerWidget {
     final layers = ref.watch(mapLayersProvider);
     final n = ref.read(mapLayersProvider.notifier);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // drag handle
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade400,
-                borderRadius: BorderRadius.circular(2),
+    // SafeArea bottom padding (browser chrome, home bar, etc.)
+    final bottomPad = MediaQuery.of(context).viewPadding.bottom;
+
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 16, 20, bottomPad + 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // drag handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text('შრეების კონტროლი',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+            const SizedBox(height: 16),
+            Text('შრეების კონტროლი',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
 
-          // ── ფონური რუკები ──────────────────────────────────────────
-          _SectionLabel('ფონური რუკები'),
-          _LayerTile(
-            icon: Icons.map_outlined,
-            label: 'OpenStreetMap',
-            value: layers.showOsm,
-            onChanged: (_) => n.toggleOsm(),
-          ),
-          _LayerTile(
-            icon: Icons.terrain,
-            label: 'OpenTopoMap',
-            value: layers.showTopo,
-            onChanged: (_) => n.toggleTopo(),
-          ),
+            // ── ფონური რუკები ────────────────────────────────────────
+            _SectionLabel('ფონური რუკები'),
+            _LayerTile(
+              icon: Icons.map_outlined,
+              label: 'OpenStreetMap',
+              value: layers.showOsm,
+              onChanged: (_) => n.toggleOsm(),
+            ),
+            _LayerTile(
+              icon: Icons.terrain,
+              label: 'OpenTopoMap',
+              value: layers.showTopo,
+              onChanged: (_) => n.toggleTopo(),
+            ),
 
-          const Divider(height: 24),
+            const Divider(height: 24),
 
-          // ── ადმინისტრაციული საზღვრები ──────────────────────────────
-          _SectionLabel('ადმინისტრაციული საზღვრები'),
-          _LayerTile(
-            icon: Icons.pentagon_outlined,
-            label: 'საქართველოს საზღვარი',
-            value: layers.showBoundary,
-            color: Colors.blue.shade700,
-            onChanged: (_) => n.toggleBoundary(),
-          ),
-          _LayerTile(
-            icon: Icons.grid_view_outlined,
-            label: 'მხარეები',
-            value: layers.showRegions,
-            color: Colors.orange.shade700,
-            onChanged: (_) => n.toggleRegions(),
-          ),
-          _LayerTile(
-            icon: Icons.grid_on_outlined,
-            label: 'მუნიციპალიტეტები',
-            value: layers.showMunicipalities,
-            color: Colors.green.shade700,
-            onChanged: (_) => n.toggleMunicipalities(),
-          ),
+            // ── ადმინისტრაციული საზღვრები ────────────────────────────
+            _SectionLabel('ადმინისტრაციული საზღვრები'),
+            _LayerTile(
+              icon: Icons.pentagon_outlined,
+              label: 'საქართველოს საზღვარი',
+              value: layers.showBoundary,
+              color: Colors.blue.shade700,
+              onChanged: (_) => n.toggleBoundary(),
+            ),
+            _LayerTile(
+              icon: Icons.grid_view_outlined,
+              label: 'მხარეები',
+              value: layers.showRegions,
+              color: Colors.orange.shade700,
+              onChanged: (_) => n.toggleRegions(),
+            ),
+            _LayerTile(
+              icon: Icons.grid_on_outlined,
+              label: 'მუნიციპალიტეტები',
+              value: layers.showMunicipalities,
+              color: Colors.green.shade700,
+              onChanged: (_) => n.toggleMunicipalities(),
+            ),
 
-          const Divider(height: 24),
+            const Divider(height: 24),
 
-          // ── საველე მონაცემები ───────────────────────────────────────
-          _SectionLabel('საველე მონაცემები'),
-          _LayerTile(
-            icon: Icons.location_pin,
-            label: 'ბტკ წერტილები',
-            value: layers.showPoints,
-            color: Theme.of(context).colorScheme.primary,
-            onChanged: (_) => n.togglePoints(),
-          ),
-        ],
+            // ── საველე მონაცემები ─────────────────────────────────────
+            _SectionLabel('საველე მონაცემები'),
+            _LayerTile(
+              icon: Icons.location_pin,
+              label: 'ბტკ წერტილები',
+              value: layers.showPoints,
+              color: Theme.of(context).colorScheme.primary,
+              onChanged: (_) => n.togglePoints(),
+            ),
+          ],
+        ),
       ),
     );
   }
