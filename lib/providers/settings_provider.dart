@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,26 +7,26 @@ import '../core/constants.dart';
 class SettingsState {
   final ThemeMode themeMode;
   final Locale locale;
-  final String defaultEmail;
+  final List<String> emails; // ← list instead of single
   final int pdfPage;
 
   const SettingsState({
     this.themeMode = ThemeMode.light,
     this.locale = const Locale('ka'),
-    this.defaultEmail = '',
+    this.emails = const [],
     this.pdfPage = 0,
   });
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     Locale? locale,
-    String? defaultEmail,
+    List<String>? emails,
     int? pdfPage,
   }) =>
       SettingsState(
         themeMode: themeMode ?? this.themeMode,
         locale: locale ?? this.locale,
-        defaultEmail: defaultEmail ?? this.defaultEmail,
+        emails: emails ?? this.emails,
         pdfPage: pdfPage ?? this.pdfPage,
       );
 }
@@ -39,14 +40,30 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     final themeStr = prefs.getString(AppConstants.prefTheme) ?? 'light';
     final localeStr = prefs.getString(AppConstants.prefLocale) ?? 'ka';
-    final email = prefs.getString(AppConstants.prefEmail) ?? '';
     final pdfPage = prefs.getInt(AppConstants.prefPdfPage) ?? 0;
+
+    // Migrate: old single-email string → new list
+    List<String> emails = [];
+    final emailsJson = prefs.getString(AppConstants.prefEmails);
+    if (emailsJson != null) {
+      emails = List<String>.from(jsonDecode(emailsJson) as List);
+    } else {
+      // migrate from old single-email key
+      final old = prefs.getString(AppConstants.prefEmail) ?? '';
+      if (old.isNotEmpty) emails = [old];
+    }
+
     state = SettingsState(
       themeMode: themeStr == 'dark' ? ThemeMode.dark : ThemeMode.light,
       locale: Locale(localeStr),
-      defaultEmail: email,
+      emails: emails,
       pdfPage: pdfPage,
     );
+  }
+
+  Future<void> _persistEmails() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConstants.prefEmails, jsonEncode(state.emails));
   }
 
   Future<void> setTheme(ThemeMode mode) async {
@@ -61,10 +78,16 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     await prefs.setString(AppConstants.prefLocale, locale.languageCode);
   }
 
-  Future<void> setDefaultEmail(String email) async {
-    state = state.copyWith(defaultEmail: email);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConstants.prefEmail, email);
+  Future<void> addEmail(String email) async {
+    final e = email.trim();
+    if (e.isEmpty || state.emails.contains(e)) return;
+    state = state.copyWith(emails: [...state.emails, e]);
+    await _persistEmails();
+  }
+
+  Future<void> removeEmail(String email) async {
+    state = state.copyWith(emails: state.emails.where((e) => e != email).toList());
+    await _persistEmails();
   }
 
   Future<void> savePdfPage(int page) async {

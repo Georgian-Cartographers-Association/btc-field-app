@@ -14,6 +14,7 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('პარამეტრები')),
       body: ListView(
         children: [
+          // ── გარეგნობა ──────────────────────────────────────────────
           const _SectionHeader('გარეგნობა'),
           SwitchListTile(
             secondary: Icon(
@@ -27,50 +28,80 @@ class SettingsScreen extends ConsumerWidget {
                 notifier.setTheme(v ? ThemeMode.dark : ThemeMode.light),
           ),
           const Divider(),
+
+          // ── ენა ───────────────────────────────────────────────────
           const _SectionHeader('ენა'),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: SegmentedButton<Locale>(
               segments: const [
-                ButtonSegment(value: Locale('ka'), label: Text('ქართული'), icon: Icon(Icons.language)),
-                ButtonSegment(value: Locale('en'), label: Text('English'), icon: Icon(Icons.language)),
+                ButtonSegment(
+                    value: Locale('ka'),
+                    label: Text('ქართული'),
+                    icon: Icon(Icons.language)),
+                ButtonSegment(
+                    value: Locale('en'),
+                    label: Text('English'),
+                    icon: Icon(Icons.language)),
               ],
               selected: {settings.locale},
               onSelectionChanged: (s) => notifier.setLocale(s.first),
             ),
           ),
           const Divider(),
-          const _SectionHeader('ელ-ფოსტა'),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: _EmailField(
-              initialValue: settings.defaultEmail,
-              onSave: notifier.setDefaultEmail,
+
+          // ── ელ-ფოსტების სია ───────────────────────────────────────
+          const _SectionHeader('ელ-ფოსტის მისამართები'),
+          if (settings.emails.isEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                'ელ-ფოსტა არ არის დამატებული',
+                style: TextStyle(color: Colors.grey),
+              ),
             ),
+          ...settings.emails.map((email) => ListTile(
+                leading: const Icon(Icons.email_outlined),
+                title: Text(email),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'წაშლა',
+                  onPressed: () => notifier.removeEmail(email),
+                ),
+                dense: true,
+              )),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: _AddEmailField(onAdd: notifier.addEmail),
           ),
           const Divider(),
+
+          // ── შესახებ ────────────────────────────────────────────────
           const _SectionHeader('შესახებ'),
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('ვერსია'),
-            subtitle: const Text('1.0.0'),
+          const ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('ვერსია'),
+            subtitle: Text('1.0.0'),
           ),
-          ListTile(
-            leading: const Icon(Icons.business_outlined),
-            title: const Text('ორგანიზაცია'),
-            subtitle: const Text(
+          const ListTile(
+            leading: Icon(Icons.business_outlined),
+            title: Text('ორგანიზაცია'),
+            subtitle: Text(
                 'ალ. ასლანიკაშვილის სახ.\nსაქართველოს კარტოგრაფთა ასოციაცია'),
           ),
-          ListTile(
-            leading: const Icon(Icons.school_outlined),
-            title: const Text('უნივერსიტეტი'),
-            subtitle: const Text('ი. ჯავახიშვილის სახ. თბილისის სახ. უნ-ტი'),
+          const ListTile(
+            leading: Icon(Icons.school_outlined),
+            title: Text('უნივერსიტეტი'),
+            subtitle:
+                Text('ი. ჯავახიშვილის სახ. თბილისის სახ. უნ-ტი'),
           ),
         ],
       ),
     );
   }
 }
+
+// ── helper widgets ─────────────────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -89,23 +120,31 @@ class _SectionHeader extends StatelessWidget {
       );
 }
 
-class _EmailField extends StatefulWidget {
-  final String initialValue;
-  final Future<void> Function(String) onSave;
-
-  const _EmailField({required this.initialValue, required this.onSave});
+class _AddEmailField extends StatefulWidget {
+  final Future<void> Function(String) onAdd;
+  const _AddEmailField({required this.onAdd});
 
   @override
-  State<_EmailField> createState() => _EmailFieldState();
+  State<_AddEmailField> createState() => _AddEmailFieldState();
 }
 
-class _EmailFieldState extends State<_EmailField> {
-  late TextEditingController _ctrl;
+class _AddEmailFieldState extends State<_AddEmailField> {
+  final _ctrl = TextEditingController();
+  bool _busy = false;
 
   @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.initialValue);
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final email = _ctrl.text.trim();
+    if (email.isEmpty) return;
+    setState(() => _busy = true);
+    await widget.onAdd(email);
+    _ctrl.clear();
+    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -116,25 +155,23 @@ class _EmailFieldState extends State<_EmailField> {
           child: TextField(
             controller: _ctrl,
             keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _add(),
             decoration: const InputDecoration(
-              labelText: 'ნაგულისხმევი ელ-ფოსტა',
+              labelText: 'ახალი ელ-ფოსტა',
               hintText: 'example@email.com',
               border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               isDense: true,
             ),
           ),
         ),
         const SizedBox(width: 8),
-        ElevatedButton(
-          onPressed: () async {
-            await widget.onSave(_ctrl.text.trim());
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('შენახულია'), duration: Duration(seconds: 2)));
-            }
-          },
-          child: const Text('შენახვა'),
+        FilledButton.icon(
+          onPressed: _busy ? null : _add,
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('დამატება'),
         ),
       ],
     );
