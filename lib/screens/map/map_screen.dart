@@ -28,6 +28,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   bool _addingPoint = false;
   List<List<LatLng>> _boundaryPolygons = [];
+  List<List<LatLng>> _regionPolygons = [];
+  List<List<LatLng>> _municipalityPolygons = [];
   // Cache: raster id → loaded image bytes
   final Map<String, Uint8List> _rasterCache = {};
 
@@ -35,11 +37,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void initState() {
     super.initState();
     _loadBoundary();
+    _loadGeojson(AppConstants.regionsGeojsonPath, (p) => _regionPolygons = p);
+    _loadGeojson(AppConstants.municipalitiesGeojsonPath, (p) => _municipalityPolygons = p);
   }
 
   Future<void> _loadBoundary() async {
+    await _loadGeojson(AppConstants.geojsonAssetPath, (p) => _boundaryPolygons = p);
+  }
+
+  Future<void> _loadGeojson(
+      String assetPath, void Function(List<List<LatLng>>) setter) async {
     try {
-      final raw = await rootBundle.loadString(AppConstants.geojsonAssetPath);
+      final raw = await rootBundle.loadString(assetPath);
       final geo = jsonDecode(raw) as Map<String, dynamic>;
       final features = geo['features'] as List<dynamic>;
       final polys = <List<LatLng>>[];
@@ -55,7 +64,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           }
         }
       }
-      if (mounted) setState(() => _boundaryPolygons = polys);
+      if (mounted) setState(() => setter(polys));
     } catch (_) {}
   }
 
@@ -153,6 +162,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     subdomains: AppConstants.topoSubdomains,
                     userAgentPackageName: 'ge.cartographers.btk',
                   ),
+                ),
+              if (layers.showMunicipalities && _municipalityPolygons.isNotEmpty)
+                PolygonLayer(
+                  polygons: _municipalityPolygons
+                      .map((pts) => Polygon(
+                            points: pts,
+                            borderColor: Colors.green.shade700,
+                            borderStrokeWidth: 0.8,
+                            color: Colors.green.withValues(alpha: 0.04),
+                          ))
+                      .toList(),
+                ),
+              if (layers.showRegions && _regionPolygons.isNotEmpty)
+                PolygonLayer(
+                  polygons: _regionPolygons
+                      .map((pts) => Polygon(
+                            points: pts,
+                            borderColor: Colors.orange.shade700,
+                            borderStrokeWidth: 1.5,
+                            color: Colors.orange.withValues(alpha: 0.05),
+                          ))
+                      .toList(),
                 ),
               if (layers.showBoundary && _boundaryPolygons.isNotEmpty)
                 PolygonLayer(

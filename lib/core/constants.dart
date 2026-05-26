@@ -15,6 +15,8 @@ class AppConstants {
 
   static const String pdfAssetPath = 'assets/pdf/methodology.pdf';
   static const String geojsonAssetPath = 'assets/geojson/georgia.geojson';
+  static const String regionsGeojsonPath = 'assets/geojson/Regions.geojson';
+  static const String municipalitiesGeojsonPath = 'assets/geojson/Municipalities.geojson';
 
   static const String prefRecords = 'btk_records';
   static const String prefTheme = 'theme_mode';
@@ -24,5 +26,7 @@ class AppConstants {
   static const String prefShowOsm = 'layer_osm';
   static const String prefShowTopo = 'layer_topo';
   static const String prefShowBoundary = 'layer_boundary';
+  static const String prefShowRegions = 'layer_regions';
+  static const String prefShowMunicipalities = 'layer_municipalities';
   static const String prefShowPoints = 'layer_points';
 }
