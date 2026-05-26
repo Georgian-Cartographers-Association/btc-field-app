@@ -10,12 +10,16 @@ import '../../models/btk_record.dart';
 import '../../providers/btk_provider.dart';
 import '../../providers/map_provider.dart';
 import '../../providers/raster_provider.dart';
+import '../../providers/tile_service_provider.dart';
+import '../../utils/measurement_service.dart';
 import '../form/btk_form_screen.dart';
+import '../layers/layers_screen.dart';
 import '../pdf/pdf_viewer_screen.dart';
-import '../raster/raster_manager_screen.dart';
 import '../records/records_screen.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/layer_control_panel.dart';
+import 'widgets/measurement_layers.dart';
+import 'widgets/measurement_panel.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -27,22 +31,23 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   bool _addingPoint = false;
+
+  // GeoJSON boundaries
   List<List<LatLng>> _boundaryPolygons = [];
   List<List<LatLng>> _regionPolygons = [];
   List<List<LatLng>> _municipalityPolygons = [];
-  // Cache: raster id → loaded image bytes
-  final Map<String, Uint8List> _rasterCache = {};
+
+  // Measurement
+  MeasureMode _measureMode = MeasureMode.none;
+  List<LatLng> _measurePoints = [];
 
   @override
   void initState() {
     super.initState();
-    _loadBoundary();
+    _loadGeojson(AppConstants.geojsonAssetPath, (p) => _boundaryPolygons = p);
     _loadGeojson(AppConstants.regionsGeojsonPath, (p) => _regionPolygons = p);
-    _loadGeojson(AppConstants.municipalitiesGeojsonPath, (p) => _municipalityPolygons = p);
-  }
-
-  Future<void> _loadBoundary() async {
-    await _loadGeojson(AppConstants.geojsonAssetPath, (p) => _boundaryPolygons = p);
+    _loadGeojson(AppConstants.municipalitiesGeojsonPath,
+        (p) => _municipalityPolygons = p);
   }
 
   Future<void> _loadGeojson(
@@ -69,76 +74,119 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   List<LatLng> _parseRing(List<dynamic> ring) =>
-      ring.map((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble())).toList();
+      ring.map((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()))
+          .toList();
 
-  List<Widget> _buildRasterLayers() {
-    final rasters = ref.watch(rasterProvider);
-    final widgets = <Widget>[];
-    for (final r in rasters) {
-      if (!r.visible) continue;
-      final bytes = _rasterCache[r.id];
-      if (bytes == null) {
-        // Trigger async load; once done, setState rebuilds the layer
-        ref.read(rasterProvider.notifier).loadImageBytes(r).then((b) {
-          if (b != null && mounted) {
-            setState(() => _rasterCache[r.id] = b);
-          }
-        });
-        continue;
-      }
-      widgets.add(
-        Opacity(
-          opacity: r.opacity,
-          child: OverlayImageLayer(
-            overlayImages: [
-              OverlayImage(
-                bounds: LatLngBounds(
-                  LatLng(r.southLat, r.westLon),
-                  LatLng(r.northLat, r.eastLon),
-                ),
-                imageProvider: MemoryImage(bytes),
+  // ── Raster / Tile layers ──────────────────────────────────────────────────
+
+  List<Widget> _buildAssetRasterLayers() {
+    return ref
+        .watch(rasterProvider)
+        .where((r) => r.visible)
+        .map((r) => Opacity(
+              opacity: r.opacity,
+              child: OverlayImageLayer(
+                overlayImages: [
+                  OverlayImage(
+                    bounds: LatLngBounds(
+                      LatLng(r.southLat, r.westLon),
+                      LatLng(r.northLat, r.eastLon),
+                    ),
+                    imageProvider: AssetImage(r.assetPath),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-      );
-    }
-    return widgets;
+            ))
+        .toList();
   }
+
+  List<Widget> _buildTileServiceLayers() {
+    return ref
+        .watch(tileServiceProvider)
+        .where((s) => s.visible)
+        .map((s) => Opacity(
+              opacity: s.opacity,
+              child: TileLayer(
+                urlTemplate: s.urlTemplate,
+                subdomains: s.subdomains,
+                userAgentPackageName: 'ge.cartographers.btk',
+              ),
+            ))
+        .toList();
+  }
+
+  // ── Location ──────────────────────────────────────────────────────────────
 
   Future<void> _goToMyLocation() async {
     LocationPermission perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
-    if (perm == LocationPermission.deniedForever || perm == LocationPermission.denied) return;
+    if (perm == LocationPermission.deniedForever ||
+        perm == LocationPermission.denied) {
+      return;
+    }
     final pos = await Geolocator.getCurrentPosition();
     _mapController.move(LatLng(pos.latitude, pos.longitude), 13.0);
   }
 
-  void _onMapTap(TapPosition _, LatLng latlng) async {
+  // ── Map tap ──────────────────────────────────────────────────────────────
+
+  void _onMapTap(TapPosition _, LatLng latlng) {
+    // Measurement has priority
+    if (_measureMode != MeasureMode.none) {
+      setState(() {
+        if (_measureMode == MeasureMode.coordinate) {
+          _measurePoints = [latlng];
+        } else {
+          _measurePoints = [..._measurePoints, latlng];
+        }
+      });
+      return;
+    }
     if (!_addingPoint) return;
     setState(() => _addingPoint = false);
-    final record = await ref.read(btkProvider.notifier).add(lat: latlng.latitude, lon: latlng.longitude);
-    if (!mounted) return;
-    _openForm(record);
+    ref
+        .read(btkProvider.notifier)
+        .add(lat: latlng.latitude, lon: latlng.longitude)
+        .then((record) {
+      if (!mounted) return;
+      _openForm(record);
+    });
   }
 
   void _openForm(BtkRecord record) {
     Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => BtkFormScreen(record: record)),
-    );
+        context, MaterialPageRoute(builder: (_) => BtkFormScreen(record: record)));
   }
+
+  // ── Measurement ───────────────────────────────────────────────────────────
+
+  void _toggleMeasure() {
+    setState(() {
+      if (_measureMode == MeasureMode.none) {
+        _measureMode = MeasureMode.coordinate;
+        _measurePoints = [];
+        _addingPoint = false;
+      } else {
+        _measureMode = MeasureMode.none;
+        _measurePoints = [];
+      }
+    });
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final layers = ref.watch(mapLayersProvider);
     final records = ref.watch(btkProvider);
+    final measuring = _measureMode != MeasureMode.none;
 
     return Scaffold(
       body: Stack(
         children: [
+          // ── Map ────────────────────────────────────────────────────────────
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -149,6 +197,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               onTap: _onMapTap,
             ),
             children: [
+              // Base tile layers
               if (layers.showOsm)
                 TileLayer(
                   urlTemplate: AppConstants.osmTileUrl,
@@ -163,6 +212,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     userAgentPackageName: 'ge.cartographers.btk',
                   ),
                 ),
+              // WMS/WMTS tile services
+              ..._buildTileServiceLayers(),
+              // Admin boundaries (render bottom-up)
               if (layers.showMunicipalities && _municipalityPolygons.isNotEmpty)
                 PolygonLayer(
                   polygons: _municipalityPolygons
@@ -196,8 +248,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           ))
                       .toList(),
                 ),
-              // Local raster overlays
-              ..._buildRasterLayers(),
+              // Asset raster overlays
+              ..._buildAssetRasterLayers(),
+              // BTC markers
               if (layers.showPoints)
                 MarkerLayer(
                   markers: records.map((r) {
@@ -213,18 +266,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             color: Theme.of(context).colorScheme.primary,
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [BoxShadow(blurRadius: 4, color: Colors.black26)],
+                            boxShadow: const [
+                              BoxShadow(blurRadius: 4, color: Colors.black26)
+                            ],
                           ),
-                          child: const Icon(Icons.location_pin, color: Colors.white, size: 18),
+                          child: const Icon(Icons.location_pin,
+                              color: Colors.white, size: 18),
                         ),
                       ),
                     );
                   }).whereType<Marker>().toList(),
                 ),
+              // Measurement overlay
+              ...buildMeasurementLayers(
+                mode: _measureMode,
+                points: _measurePoints,
+                scheme: Theme.of(context).colorScheme,
+              ),
             ],
           ),
 
-          // Adding point hint
+          // ── Adding point hint ───────────────────────────────────────────
           if (_addingPoint)
             Positioned(
               top: MediaQuery.of(context).padding.top + 16,
@@ -236,17 +298,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   borderRadius: BorderRadius.circular(24),
                   color: Theme.of(context).colorScheme.primaryContainer,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     child: Text(
                       'რუკაზე დააჭირეთ წერტილის დასამატებლად',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onPrimaryContainer),
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimaryContainer),
                     ),
                   ),
                 ),
               ),
             ),
 
-          // Right-side action buttons (matching screenshot layout)
+          // ── Right-side buttons ──────────────────────────────────────────
           Positioned(
             right: 12,
             top: MediaQuery.of(context).padding.top + 80,
@@ -255,13 +321,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 _MapButton(
                   icon: Icons.add,
                   onTap: () => _mapController.move(
-                      _mapController.camera.center, _mapController.camera.zoom + 1),
+                      _mapController.camera.center,
+                      _mapController.camera.zoom + 1),
                 ),
                 const SizedBox(height: 8),
                 _MapButton(
                   icon: Icons.remove,
                   onTap: () => _mapController.move(
-                      _mapController.camera.center, _mapController.camera.zoom - 1),
+                      _mapController.camera.center,
+                      _mapController.camera.zoom - 1),
                 ),
                 const SizedBox(height: 16),
                 _MapButton(
@@ -274,27 +342,58 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   onTap: () => showModalBottomSheet(
                     context: context,
                     shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                        borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(20))),
                     builder: (_) => const LayerControlPanel(),
                   ),
                 ),
                 const SizedBox(height: 8),
                 _MapButton(
                   icon: Icons.menu_book_outlined,
-                  onTap: () => Navigator.push(
-                      context, MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
                 ),
                 const SizedBox(height: 8),
+                // Measurement button
                 _MapButton(
-                  icon: Icons.satellite_alt_outlined,
-                  onTap: () => Navigator.push(
-                      context, MaterialPageRoute(builder: (_) => const RasterManagerScreen())),
+                  icon: Icons.straighten,
+                  active: measuring,
+                  onTap: _toggleMeasure,
+                ),
+                const SizedBox(height: 8),
+                // Layers (rasters + WMS)
+                _MapButton(
+                  icon: Icons.travel_explore,
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const LayersScreen())),
                 ),
               ],
             ),
           ),
 
-          // Bottom bar
+          // ── Measurement panel ───────────────────────────────────────────
+          if (measuring)
+            Positioned(
+              bottom: 90,
+              left: 12,
+              right: 12,
+              child: MeasurementPanel(
+                mode: _measureMode,
+                points: _measurePoints,
+                onModeChanged: (m) =>
+                    setState(() {
+                      _measureMode = m;
+                      _measurePoints = [];
+                    }),
+                onUndo: () => setState(() {
+                  if (_measurePoints.isNotEmpty) _measurePoints.removeLast();
+                }),
+                onClear: () => setState(() => _measurePoints = []),
+                onClose: _toggleMeasure,
+              ),
+            ),
+
+          // ── Bottom navigation ───────────────────────────────────────────
           Positioned(
             bottom: 0,
             left: 0,
@@ -305,7 +404,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 decoration: BoxDecoration(
                   color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(blurRadius: 8, color: Colors.black12)],
+                  boxShadow: const [
+                    BoxShadow(blurRadius: 8, color: Colors.black12)
+                  ],
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -319,12 +420,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     _BottomBarButton(
                       icon: Icons.list_alt_outlined,
                       label: 'ჩანაწერები',
-                      onTap: () => Navigator.push(
-                          context, MaterialPageRoute(builder: (_) => const RecordsScreen())),
+                      onTap: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const RecordsScreen())),
                     ),
-                    // Central add button
+                    // Central add FAB
                     GestureDetector(
-                      onTap: () => setState(() => _addingPoint = !_addingPoint),
+                      onTap: () =>
+                          setState(() => _addingPoint = !_addingPoint),
                       child: Container(
                         width: 56,
                         height: 56,
@@ -334,10 +436,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                               ? Theme.of(context).colorScheme.secondary
                               : Theme.of(context).colorScheme.primary,
                           shape: BoxShape.circle,
-                          boxShadow: [BoxShadow(blurRadius: 6, color: Colors.black26)],
+                          boxShadow: const [
+                            BoxShadow(blurRadius: 6, color: Colors.black26)
+                          ],
                         ),
                         child: Icon(
-                          _addingPoint ? Icons.close : Icons.add_location_alt,
+                          _addingPoint
+                              ? Icons.close
+                              : Icons.add_location_alt,
                           color: Colors.white,
                           size: 28,
                         ),
@@ -346,14 +452,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     _BottomBarButton(
                       icon: Icons.picture_as_pdf_outlined,
                       label: 'მეთოდიკა',
-                      onTap: () => Navigator.push(
-                          context, MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
+                      onTap: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
                     ),
                     _BottomBarButton(
                       icon: Icons.settings_outlined,
                       label: 'პარამ.',
-                      onTap: () => Navigator.push(
-                          context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+                      onTap: () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => const SettingsScreen())),
                     ),
                   ],
                 ),
@@ -366,25 +472,34 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+
 class _MapButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+  final bool active;
 
-  const _MapButton({required this.icon, required this.onTap});
+  const _MapButton({required this.icon, required this.onTap, this.active = false});
 
   @override
   Widget build(BuildContext context) {
     return Material(
       elevation: 3,
       borderRadius: BorderRadius.circular(12),
-      color: Theme.of(context).cardColor,
+      color: active
+          ? Theme.of(context).colorScheme.primaryContainer
+          : Theme.of(context).cardColor,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: SizedBox(
           width: 44,
           height: 44,
-          child: Icon(icon, size: 22),
+          child: Icon(
+            icon,
+            size: 22,
+            color: active ? Theme.of(context).colorScheme.primary : null,
+          ),
         ),
       ),
     );
