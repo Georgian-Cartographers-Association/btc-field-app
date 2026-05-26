@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io' show File;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -7,6 +9,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/constants.dart';
 import '../../models/btk_record.dart';
+import '../../models/raster_layer.dart';
+import '../../models/tile_service.dart';
 import '../../providers/btk_provider.dart';
 import '../../providers/map_provider.dart';
 import '../../providers/raster_provider.dart';
@@ -79,24 +83,33 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   // ── Raster / Tile layers ──────────────────────────────────────────────────
 
+  ImageProvider _imageProviderFor(RasterLayer r) {
+    if (r.assetPath != null) return AssetImage(r.assetPath!);
+    if (!kIsWeb && r.filePath != null) return FileImage(File(r.filePath!));
+    if (r.fileBytes != null) return MemoryImage(r.fileBytes!);
+    return MemoryImage(Uint8List(0));
+  }
+
   List<Widget> _buildAssetRasterLayers() {
     return ref
         .watch(rasterProvider)
         .where((r) => r.visible)
-        .map((r) => Opacity(
-              opacity: r.opacity,
-              child: OverlayImageLayer(
-                overlayImages: [
-                  OverlayImage(
-                    bounds: LatLngBounds(
-                      LatLng(r.southLat, r.westLon),
-                      LatLng(r.northLat, r.eastLon),
-                    ),
-                    imageProvider: AssetImage(r.assetPath),
-                  ),
-                ],
+        .map((r) {
+          final layer = OverlayImageLayer(
+            overlayImages: [
+              OverlayImage(
+                bounds: LatLngBounds(
+                  LatLng(r.southLat, r.westLon),
+                  LatLng(r.northLat, r.eastLon),
+                ),
+                imageProvider: _imageProviderFor(r),
               ),
-            ))
+            ],
+          );
+          return r.opacity < 0.999
+              ? Opacity(opacity: r.opacity, child: layer)
+              : layer;
+        })
         .toList();
   }
 
@@ -104,14 +117,40 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return ref
         .watch(tileServiceProvider)
         .where((s) => s.visible)
-        .map((s) => Opacity(
-              opacity: s.opacity,
-              child: TileLayer(
-                urlTemplate: s.urlTemplate,
-                subdomains: s.subdomains,
-                userAgentPackageName: 'ge.cartographers.btk',
+        .map((s) {
+          final Widget layer;
+          if (s.serviceType == ServiceType.wms) {
+            // Proper WMS GetMap request via WMSTileLayerOptions
+            final baseUrl = s.urlTemplate.contains('?')
+                ? s.urlTemplate
+                : '${s.urlTemplate}?';
+            final layerList = s.wmsLayers
+                .split(',')
+                .map((e) => e.trim())
+                .where((e) => e.isNotEmpty)
+                .toList();
+            layer = TileLayer(
+              wmsOptions: WMSTileLayerOptions(
+                baseUrl: baseUrl,
+                layers: layerList,
+                format: 'image/png',
+                transparent: true,
+                version: '1.1.1',
               ),
-            ))
+              userAgentPackageName: 'ge.cartographers.btk',
+            );
+          } else {
+            // XYZ / WMTS
+            layer = TileLayer(
+              urlTemplate: s.urlTemplate,
+              subdomains: s.subdomains,
+              userAgentPackageName: 'ge.cartographers.btk',
+            );
+          }
+          return s.opacity < 0.999
+              ? Opacity(opacity: s.opacity, child: layer)
+              : layer;
+        })
         .toList();
   }
 
@@ -337,6 +376,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   onTap: _goToMyLocation,
                 ),
                 const SizedBox(height: 8),
+                // Raster + WMS services (above vector controls)
+                _MapButton(
+                  icon: Icons.travel_explore,
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const LayersScreen())),
+                ),
+                const SizedBox(height: 4),
+                // Vector / admin layer toggles
                 _MapButton(
                   icon: Icons.layers_outlined,
                   onTap: () => showModalBottomSheet(
@@ -360,13 +407,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   icon: Icons.straighten,
                   active: measuring,
                   onTap: _toggleMeasure,
-                ),
-                const SizedBox(height: 8),
-                // Layers (rasters + WMS)
-                _MapButton(
-                  icon: Icons.travel_explore,
-                  onTap: () => Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const LayersScreen())),
                 ),
               ],
             ),
