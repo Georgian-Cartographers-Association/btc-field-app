@@ -21,13 +21,15 @@ class BtkDatabase {
     final dbPath = join(await getDatabasesPath(), 'btk_field_app.db');
     return openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: (db, _) async {
         await _createV1(db);
         await _createV2(db);
+        await _createV3(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
+        if (oldVersion < 3) await _createV3(db);
       },
     );
   }
@@ -57,6 +59,12 @@ class BtkDatabase {
     ''');
     await db.execute('CREATE INDEX idx_records_date ON btk_records(date DESC)');
     await db.execute('CREATE INDEX idx_photos_record ON photos(record_id)');
+  }
+
+  static Future<void> _createV3(Database db) async {
+    // Add cloud_url column to photos (nullable — null = not yet uploaded)
+    await db.execute(
+        'ALTER TABLE photos ADD COLUMN cloud_url TEXT');
   }
 
   static Future<void> _createV2(Database db) async {
@@ -126,6 +134,16 @@ class BtkDatabase {
   static Future<void> deletePhoto(String id) async {
     final db = await database;
     await db.delete('photos', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<void> updatePhotoCloudUrl(String id, String url) async {
+    final db = await database;
+    await db.update(
+      'photos',
+      {'cloud_url': url},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // ── GPS Tracks ──────────────────────────────────────────────────────────────

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../models/photo.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/photo_provider.dart';
+import '../../../providers/settings_provider.dart';
 
 /// Photo gallery section — shown as the last tab in BtkFormScreen.
 /// Android-only: web shows a placeholder.
@@ -15,13 +17,17 @@ class PhotosSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final photos = ref.watch(photoProvider(recordId));
     final notifier = ref.read(photoProvider(recordId).notifier);
+    final settings = ref.watch(settingsProvider);
+    final isCloud = settings.storageMode == StorageMode.cloud &&
+        ref.watch(authProvider).valueOrNull != null;
+    final syncMode = settings.photoSyncMode;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Action buttons ──────────────────────────────────────────────
+          // ── Action buttons ────────────────────────────────────────────
           Row(
             children: [
               FilledButton.icon(
@@ -37,9 +43,16 @@ class PhotosSection extends ConsumerWidget {
               ),
             ],
           ),
+
+          // ── Cloud sync status bar ─────────────────────────────────────
+          if (isCloud) ...[
+            const SizedBox(height: 10),
+            _SyncStatusBar(photos: photos, syncMode: syncMode),
+          ],
+
           const SizedBox(height: 16),
 
-          // ── Grid ────────────────────────────────────────────────────────
+          // ── Grid ─────────────────────────────────────────────────────
           if (photos.isEmpty)
             const _EmptyHint()
           else
@@ -54,8 +67,12 @@ class PhotosSection extends ConsumerWidget {
               itemCount: photos.length,
               itemBuilder: (context, i) => _PhotoTile(
                 photo: photos[i],
+                showCloudBadge: isCloud,
                 onTap: () => _openGallery(context, photos, i),
                 onDelete: () => _confirmDelete(context, notifier, photos[i]),
+                onUpload: syncMode != PhotoSyncMode.none
+                    ? () => notifier.uploadPhoto(photos[i])
+                    : null,
               ),
             ),
         ],
@@ -97,33 +114,117 @@ class PhotosSection extends ConsumerWidget {
   }
 }
 
-// ── Photo tile ──────────────────────────────────────────────────────────────
+// ── Sync status bar ──────────────────────────────────────────────────────────
 
-class _PhotoTile extends StatelessWidget {
-  final Photo photo;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  const _PhotoTile(
-      {required this.photo, required this.onTap, required this.onDelete});
+class _SyncStatusBar extends StatelessWidget {
+  final List<Photo> photos;
+  final PhotoSyncMode syncMode;
+  const _SyncStatusBar({required this.photos, required this.syncMode});
 
   @override
   Widget build(BuildContext context) {
+    if (photos.isEmpty) return const SizedBox.shrink();
+
+    final uploaded = photos.where((p) => p.cloudUrl != null).length;
+    final pending = photos.length - uploaded;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(children: [
+        Icon(
+          pending == 0 ? Icons.cloud_done_outlined : Icons.cloud_sync_outlined,
+          size: 16,
+          color: pending == 0 ? Colors.green : Colors.orange,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          pending == 0
+              ? 'ყველა ფოტო Cloud-შია ($uploaded)'
+              : syncMode == PhotoSyncMode.none
+                  ? '$uploaded ატვირთულია · $pending ლოკალური'
+                  : '$uploaded ატვირთულია · $pending ელოდება',
+          style: const TextStyle(fontSize: 12),
+        ),
+      ]),
+    );
+  }
+}
+
+// ── Photo tile ───────────────────────────────────────────────────────────────
+
+class _PhotoTile extends StatelessWidget {
+  final Photo photo;
+  final bool showCloudBadge;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final VoidCallback? onUpload; // null when sync disabled
+
+  const _PhotoTile({
+    required this.photo,
+    required this.showCloudBadge,
+    required this.onTap,
+    required this.onDelete,
+    this.onUpload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isUploaded = photo.cloudUrl != null;
+
     return GestureDetector(
       onTap: onTap,
       onLongPress: onDelete,
       child: Stack(
         fit: StackFit.expand,
         children: [
+          // ── Image ──────────────────────────────────────────────────
           Image.file(
             File(photo.filePath),
             fit: BoxFit.cover,
             errorBuilder: (context, err, stack) => Container(
               color: Colors.grey.shade200,
-              child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+              child: const Icon(Icons.broken_image_outlined,
+                  color: Colors.grey),
             ),
           ),
-          // Delete button (top-right)
+
+          // ── Cloud status badge (bottom-left) ───────────────────────
+          if (showCloudBadge)
+            Positioned(
+              bottom: 3,
+              left: 3,
+              child: GestureDetector(
+                onTap: (!isUploaded && onUpload != null) ? onUpload : null,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isUploaded
+                            ? Icons.cloud_done
+                            : (onUpload != null
+                                ? Icons.cloud_upload_outlined
+                                : Icons.phone_android),
+                        size: 12,
+                        color: isUploaded ? Colors.greenAccent : Colors.white70,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // ── Delete button (top-right) ──────────────────────────────
           Positioned(
             top: 3,
             right: 3,
@@ -135,7 +236,8 @@ class _PhotoTile extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 padding: const EdgeInsets.all(3),
-                child: const Icon(Icons.close, size: 14, color: Colors.white),
+                child:
+                    const Icon(Icons.close, size: 14, color: Colors.white),
               ),
             ),
           ),
@@ -145,7 +247,7 @@ class _PhotoTile extends StatelessWidget {
   }
 }
 
-// ── Empty hint ──────────────────────────────────────────────────────────────
+// ── Empty hint ───────────────────────────────────────────────────────────────
 
 class _EmptyHint extends StatelessWidget {
   const _EmptyHint();
@@ -159,7 +261,10 @@ class _EmptyHint extends StatelessWidget {
           children: [
             Icon(Icons.photo_camera_outlined,
                 size: 56,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.3)),
             const SizedBox(height: 12),
             Text(
               'ფოტო არ არის დამატებული',
@@ -187,7 +292,7 @@ class _EmptyHint extends StatelessWidget {
   }
 }
 
-// ── Full-screen swipeable gallery ───────────────────────────────────────────
+// ── Full-screen swipeable gallery ────────────────────────────────────────────
 
 class _FullScreenGallery extends StatefulWidget {
   final List<Photo> photos;
