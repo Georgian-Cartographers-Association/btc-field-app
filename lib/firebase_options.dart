@@ -34,13 +34,10 @@ class DefaultFirebaseOptions {
   );
 
   // ── Android ───────────────────────────────────────────────────────────────
-  // TODO: Add Android app in Firebase Console (package: ge.cartographers.btk_field_app)
-  //       then run:  flutterfire configure --project=gca-btk-field-app
-  //       OR download google-services.json → android/app/ and fill values below.
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'REPLACE_ME',
-    appId: 'REPLACE_ME',
+    apiKey: 'AIzaSyDyuQPzRoqSL9RnDT6r1b5jaq18EmH1eW0',
+    appId: '1:699141416460:android:484d87c41586c31c90f029',
     messagingSenderId: '699141416460',
     projectId: 'gca-btk-field-app',
     storageBucket: 'gca-btk-field-app.firebasestorage.app',

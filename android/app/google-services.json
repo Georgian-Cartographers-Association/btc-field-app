@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "699141416460",
+    "project_id": "gca-btk-field-app",
+    "storage_bucket": "gca-btk-field-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:699141416460:android:484d87c41586c31c90f029",
+        "android_client_info": {
+          "package_name": "ge.cartographers.btk_field_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyuQPzRoqSL9RnDT6r1b5jaq18EmH1eW0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
