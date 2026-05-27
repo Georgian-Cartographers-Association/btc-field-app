@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -44,6 +45,59 @@ class ExportService {
   }
 
   static String _q(String s) => '"${s.replaceAll('"', '""')}"';
+
+  // ─── GeoJSON ──────────────────────────────────────────────────────────────────
+
+  static String buildGeoJson(List<BtkRecord> records) {
+    final features = records.map((r) {
+      final hasCoords = r.latitude != null && r.longitude != null;
+      return {
+        'type': 'Feature',
+        'geometry': hasCoords
+            ? {
+                'type': 'Point',
+                'coordinates': [r.longitude, r.latitude],
+              }
+            : null,
+        'properties': {
+          'id': r.id,
+          'date': r.date.toIso8601String().split('T').first,
+          'location': r.location,
+          'geological_formation': r.geologicalFormation,
+          'relief_type': r.reliefType,
+          'morphological_desc': r.morphologicalDesc,
+          'geomorph_processes': r.geomorphProcesses,
+          'migration_regime': r.migrationRegime,
+          'moisture_degree': r.moistureDegree,
+          'soil_type': r.soilTypeName,
+          'geohorizon_index': r.geohorizonIndex,
+          'soil_surface_formation': r.soilSurfaceFormation,
+          'vert_struct_type': r.vertStructTypeName,
+          'vert_struct_index': r.vertStructIndex,
+          'vert_struct_height': r.vertStructHeight,
+        },
+      };
+    }).toList();
+
+    return const JsonEncoder.withIndent('  ').convert({
+      'type': 'FeatureCollection',
+      'name': 'BTK Field Records',
+      'crs': {
+        'type': 'name',
+        'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'},
+      },
+      'features': features,
+    });
+  }
+
+  static Future<void> shareGeoJson(List<BtkRecord> records) async {
+    final json = buildGeoJson(records);
+    final bytes = Uint8List.fromList(utf8.encode(json));
+    final file = XFile.fromData(bytes,
+        name: 'btk_records.geojson',
+        mimeType: 'application/geo+json');
+    await Share.shareXFiles([file], subject: 'ბტკ ჩანაწერები — GeoJSON');
+  }
 
   static Future<void> shareCsv(List<BtkRecord> records) async {
     final csv = buildCsv(records);

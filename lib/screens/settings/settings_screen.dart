@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../providers/settings_provider.dart';
 
 const _githubUrl =
@@ -21,16 +23,40 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           // ── გარეგნობა ──────────────────────────────────────────────
           const _SectionHeader('გარეგნობა'),
-          SwitchListTile(
-            secondary: Icon(
-              settings.themeMode == ThemeMode.dark
-                  ? Icons.dark_mode_outlined
-                  : Icons.light_mode_outlined,
+
+          // Dark mode: 3-segment (ნათელი / სისტემა / მუქი)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('თემა',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                const SizedBox(height: 6),
+                SegmentedButton<ThemeMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      icon: Icon(Icons.light_mode_outlined),
+                      label: Text('ნათელი'),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      icon: Icon(Icons.brightness_auto_outlined),
+                      label: Text('სისტემა'),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      icon: Icon(Icons.dark_mode_outlined),
+                      label: Text('მუქი'),
+                    ),
+                  ],
+                  selected: {settings.themeMode},
+                  onSelectionChanged: (s) => notifier.setTheme(s.first),
+                ),
+              ],
             ),
-            title: const Text('მუქი ფონი'),
-            value: settings.themeMode == ThemeMode.dark,
-            onChanged: (v) =>
-                notifier.setTheme(v ? ThemeMode.dark : ThemeMode.light),
           ),
           const Divider(),
 
@@ -54,6 +80,22 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const Divider(),
+
+          // ── ეკრანი ────────────────────────────────────────────────
+          if (!kIsWeb) ...[
+            const _SectionHeader('ეკრანი'),
+            SwitchListTile(
+              secondary: const Icon(Icons.screen_lock_portrait_outlined),
+              title: const Text('ეკრანი ნუ ჩაქრება'),
+              subtitle: const Text('რუკაზე მუშაობისას'),
+              value: settings.screenAwake,
+              onChanged: (v) async {
+                await notifier.setScreenAwake(v);
+                await WakelockPlus.toggle(enable: v);
+              },
+            ),
+            const Divider(),
+          ],
 
           // ── ელ-ფოსტების სია ───────────────────────────────────────
           const _SectionHeader('ელ-ფოსტის მისამართები'),
@@ -84,7 +126,6 @@ class SettingsScreen extends ConsumerWidget {
           // ── შესახებ ────────────────────────────────────────────────
           const _SectionHeader('შესახებ'),
 
-          // Dynamic version from pubspec.yaml
           FutureBuilder<PackageInfo>(
             future: PackageInfo.fromPlatform(),
             builder: (context, snapshot) {
@@ -108,11 +149,9 @@ class SettingsScreen extends ConsumerWidget {
           const ListTile(
             leading: Icon(Icons.school_outlined),
             title: Text('უნივერსიტეტი'),
-            subtitle:
-                Text('ი. ჯავახიშვილის სახ. თბილისის სახ. უნ-ტი'),
+            subtitle: Text('ი. ჯავახიშვილის სახ. თბილისის სახ. უნ-ტი'),
           ),
 
-          // GitHub repo link
           ListTile(
             leading: const Icon(Icons.code_outlined),
             title: const Text('GitHub'),

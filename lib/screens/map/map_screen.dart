@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io' show File;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -25,6 +26,7 @@ import 'widgets/layer_control_panel.dart';
 import 'widgets/measurement_layers.dart';
 import 'widgets/measurement_panel.dart';
 import 'widgets/weather_panel.dart';
+import '../../providers/settings_provider.dart';
 import '../../services/analytics_service.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
@@ -243,6 +245,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final layers = ref.watch(mapLayersProvider);
     final records = ref.watch(btkProvider);
     final measuring = _measureMode != MeasureMode.none;
+
+    // Apply wakelock setting reactively
+    if (!kIsWeb) {
+      final awake = ref.watch(settingsProvider.select((s) => s.screenAwake));
+      WakelockPlus.toggle(enable: awake);
+    }
 
     return Scaffold(
       body: Stack(
