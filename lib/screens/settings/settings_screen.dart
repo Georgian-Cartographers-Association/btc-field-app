@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/settings_provider.dart';
+
+const _githubUrl =
+    'https://github.com/Georgian-Cartographers-Association/GCA-btc-field-app';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -78,23 +83,52 @@ class SettingsScreen extends ConsumerWidget {
 
           // ── შესახებ ────────────────────────────────────────────────
           const _SectionHeader('შესახებ'),
-          const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('ვერსია'),
-            subtitle: Text('1.0.0'),
+
+          // Dynamic version from pubspec.yaml
+          FutureBuilder<PackageInfo>(
+            future: PackageInfo.fromPlatform(),
+            builder: (context, snapshot) {
+              final ver = snapshot.data?.version ?? '—';
+              final build = snapshot.data?.buildNumber ?? '';
+              return ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('ვერსია'),
+                subtitle: Text('$ver+$build'),
+              );
+            },
           ),
+
           const ListTile(
             leading: Icon(Icons.business_outlined),
             title: Text('ორგანიზაცია'),
             subtitle: Text(
                 'ალ. ასლანიკაშვილის სახ.\nსაქართველოს კარტოგრაფთა ასოციაცია'),
           ),
+
           const ListTile(
             leading: Icon(Icons.school_outlined),
             title: Text('უნივერსიტეტი'),
             subtitle:
                 Text('ი. ჯავახიშვილის სახ. თბილისის სახ. უნ-ტი'),
           ),
+
+          // GitHub repo link
+          ListTile(
+            leading: const Icon(Icons.code_outlined),
+            title: const Text('GitHub'),
+            subtitle: const Text(
+              'Georgian-Cartographers-Association/\nGCA-btc-field-app',
+              style: TextStyle(fontSize: 11),
+            ),
+            trailing:
+                const Icon(Icons.open_in_new, size: 16, color: Colors.grey),
+            onTap: () => launchUrl(
+              Uri.parse(_githubUrl),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+
+          const SizedBox(height: 16),
         ],
       ),
     );

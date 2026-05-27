@@ -46,6 +46,13 @@ dependencies:
   # Weather (yr.no / api.met.no — free, no key)
   http: ^1.2.1
 
+  # Firebase
+  firebase_core: ^3.13.1
+  firebase_analytics: ^11.4.5
+
+  # App version info
+  package_info_plus: ^8.3.0
+
   # Utilities
   uuid: ^4.5.1
   url_launcher: ^6.3.1
