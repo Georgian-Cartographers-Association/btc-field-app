@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,8 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/btk_record.dart';
 import '../../providers/btk_provider.dart';
 import '../../providers/settings_provider.dart';
-import '../pdf/pdf_viewer_screen.dart';
 import '../../services/analytics_service.dart';
+import '../pdf/pdf_viewer_screen.dart';
+import 'sections/photos_section.dart';
 import 'sections/basic_info_section.dart';
 import 'sections/physical_geo_section.dart';
 import 'sections/vegetation_section.dart';
@@ -38,7 +40,8 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
   void initState() {
     super.initState();
     _record = widget.record;
-    _tabController = TabController(length: 6, vsync: this);
+    // 7 tabs on Android (photos available), 6 on web
+    _tabController = TabController(length: kIsWeb ? 6 : 7, vsync: this);
   }
 
   @override
@@ -258,13 +261,18 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
           bottom: TabBar(
             controller: _tabController,
             isScrollable: true,
-            tabs: const [
-              Tab(text: 'ძირითადი'),
-              Tab(text: 'ფიზ.გეოგ.'),
-              Tab(text: 'მცენარ.'),
-              Tab(text: 'ნიადაგი'),
-              Tab(text: 'გეომასა'),
-              Tab(text: 'ვ.სტრ.'),
+            tabs: [
+              const Tab(text: 'ძირითადი'),
+              const Tab(text: 'ფიზ.გეოგ.'),
+              const Tab(text: 'მცენარ.'),
+              const Tab(text: 'ნიადაგი'),
+              const Tab(text: 'გეომასა'),
+              const Tab(text: 'ვ.სტრ.'),
+              if (!kIsWeb)
+                const Tab(
+                  icon: Icon(Icons.photo_library_outlined, size: 16),
+                  text: 'ფოტოები',
+                ),
             ],
           ),
         ),
@@ -295,6 +303,7 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
         SoilSection(record: _record, onChanged: _update),
         GeomassSection(record: _record, onChanged: _update),
         VerticalStructureSection(record: _record, onChanged: _update),
+        if (!kIsWeb) PhotosSection(recordId: _record.id),
       ],
     );
   }
