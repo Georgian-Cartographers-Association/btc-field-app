@@ -1,9 +1,7 @@
 // ════════════════════════════════════════════════════════════════════════════
-// PLACEHOLDER — run the following command to replace this file with real config:
-//
-//   dart pub global activate flutterfire_cli
-//   flutterfire configure --project=YOUR_FIREBASE_PROJECT_ID
-//
+// Generated / updated manually.
+// Android section will be filled after running:
+//   flutterfire configure --project=gca-btk-field-app
 // ════════════════════════════════════════════════════════════════════════════
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
@@ -19,27 +17,32 @@ class DefaultFirebaseOptions {
       default:
         throw UnsupportedError(
             'DefaultFirebaseOptions not configured for this platform. '
-            'Run: flutterfire configure');
+            'Run: flutterfire configure --project=gca-btk-field-app');
     }
   }
 
-  // ── REPLACE these values after running: flutterfire configure ─────────────
+  // ── Web ───────────────────────────────────────────────────────────────────
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'REPLACE_ME',
-    appId: 'REPLACE_ME',
-    messagingSenderId: 'REPLACE_ME',
-    projectId: 'REPLACE_ME',
-    authDomain: 'REPLACE_ME',
-    storageBucket: 'REPLACE_ME',
-    measurementId: 'REPLACE_ME',
+    apiKey: 'AIzaSyCmHZpaB60kGcMRqEzT6fqD4GxGpO01UJo',
+    appId: '1:699141416460:web:274e0c5e564e8a4890f029',
+    messagingSenderId: '699141416460',
+    projectId: 'gca-btk-field-app',
+    authDomain: 'gca-btk-field-app.firebaseapp.com',
+    storageBucket: 'gca-btk-field-app.firebasestorage.app',
+    measurementId: 'G-G15W816JJ5',
   );
+
+  // ── Android ───────────────────────────────────────────────────────────────
+  // TODO: Add Android app in Firebase Console (package: ge.cartographers.btk_field_app)
+  //       then run:  flutterfire configure --project=gca-btk-field-app
+  //       OR download google-services.json → android/app/ and fill values below.
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'REPLACE_ME',
     appId: 'REPLACE_ME',
-    messagingSenderId: 'REPLACE_ME',
-    projectId: 'REPLACE_ME',
-    storageBucket: 'REPLACE_ME',
+    messagingSenderId: '699141416460',
+    projectId: 'gca-btk-field-app',
+    storageBucket: 'gca-btk-field-app.firebasestorage.app',
   );
 }
