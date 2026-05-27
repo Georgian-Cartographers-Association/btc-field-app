@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/btk_record.dart';
+import '../models/gps_track.dart';
 import '../models/photo.dart';
 
 /// SQLite wrapper — used on Android/native only.
@@ -20,36 +21,55 @@ class BtkDatabase {
     final dbPath = join(await getDatabasesPath(), 'btk_field_app.db');
     return openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: (db, _) async {
-        await db.execute('''
-          CREATE TABLE btk_records (
-            id          TEXT PRIMARY KEY,
-            json        TEXT NOT NULL,
-            date        TEXT NOT NULL,
-            location    TEXT DEFAULT '',
-            latitude    REAL,
-            longitude   REAL,
-            updated_at  TEXT NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE photos (
-            id          TEXT PRIMARY KEY,
-            record_id   TEXT NOT NULL,
-            file_path   TEXT NOT NULL,
-            caption     TEXT DEFAULT '',
-            sort_order  INTEGER DEFAULT 0,
-            created_at  TEXT NOT NULL,
-            FOREIGN KEY (record_id) REFERENCES btk_records(id) ON DELETE CASCADE
-          )
-        ''');
-        await db.execute(
-            'CREATE INDEX idx_records_date ON btk_records(date DESC)');
-        await db.execute(
-            'CREATE INDEX idx_photos_record ON photos(record_id)');
+        await _createV1(db);
+        await _createV2(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) await _createV2(db);
       },
     );
+  }
+
+  static Future<void> _createV1(Database db) async {
+    await db.execute('''
+      CREATE TABLE btk_records (
+        id          TEXT PRIMARY KEY,
+        json        TEXT NOT NULL,
+        date        TEXT NOT NULL,
+        location    TEXT DEFAULT '',
+        latitude    REAL,
+        longitude   REAL,
+        updated_at  TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE photos (
+        id          TEXT PRIMARY KEY,
+        record_id   TEXT NOT NULL,
+        file_path   TEXT NOT NULL,
+        caption     TEXT DEFAULT '',
+        sort_order  INTEGER DEFAULT 0,
+        created_at  TEXT NOT NULL,
+        FOREIGN KEY (record_id) REFERENCES btk_records(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_records_date ON btk_records(date DESC)');
+    await db.execute('CREATE INDEX idx_photos_record ON photos(record_id)');
+  }
+
+  static Future<void> _createV2(Database db) async {
+    await db.execute('''
+      CREATE TABLE gps_tracks (
+        id          TEXT PRIMARY KEY,
+        started_at  TEXT NOT NULL,
+        ended_at    TEXT,
+        points_json TEXT NOT NULL DEFAULT '[]'
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX idx_tracks_started ON gps_tracks(started_at DESC)');
   }
 
   // ── BtkRecord ───────────────────────────────────────────────────────────────
@@ -81,7 +101,6 @@ class BtkDatabase {
 
   static Future<void> deleteRecord(String id) async {
     final db = await database;
-    // photos are cascade-deleted by FK
     await db.delete('btk_records', where: 'id = ?', whereArgs: [id]);
   }
 
@@ -107,5 +126,31 @@ class BtkDatabase {
   static Future<void> deletePhoto(String id) async {
     final db = await database;
     await db.delete('photos', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ── GPS Tracks ──────────────────────────────────────────────────────────────
+
+  static Future<List<GpsTrack>> getAllTracks() async {
+    final db = await database;
+    final rows =
+        await db.query('gps_tracks', orderBy: 'started_at DESC');
+    return rows.map(GpsTrack.fromMap).toList();
+  }
+
+  static Future<void> insertTrack(GpsTrack t) async {
+    final db = await database;
+    await db.insert('gps_tracks', t.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> updateTrack(GpsTrack t) async {
+    final db = await database;
+    await db.update('gps_tracks', t.toMap(),
+        where: 'id = ?', whereArgs: [t.id]);
+  }
+
+  static Future<void> deleteTrack(String id) async {
+    final db = await database;
+    await db.delete('gps_tracks', where: 'id = ?', whereArgs: [id]);
   }
 }

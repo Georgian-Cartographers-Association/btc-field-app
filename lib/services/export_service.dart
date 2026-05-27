@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart' show PdfGoogleFonts, Printing;
 import 'package:share_plus/share_plus.dart';
 import '../models/btk_record.dart';
+import '../models/gps_track.dart';
 
 class ExportService {
   // ─── CSV ─────────────────────────────────────────────────────────────────────
@@ -231,6 +232,43 @@ class ExportService {
       );
 
   static final pw.Widget _pdfSep = pw.Divider(color: PdfColors.grey400, height: 12);
+
+  // ─── GPX ─────────────────────────────────────────────────────────────────────
+
+  static String buildGpx(GpsTrack track) {
+    final dateStr = track.startedAt.toIso8601String().split('T').first;
+    final buf = StringBuffer();
+    buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
+    buf.writeln(
+        '<gpx version="1.1" creator="BTC Field App" '
+        'xmlns="http://www.topografix.com/GPX/1/1">');
+    buf.writeln('  <trk>');
+    buf.writeln('    <name>GPS Track $dateStr</name>');
+    buf.writeln('    <trkseg>');
+    for (final p in track.points) {
+      buf.writeln(
+          '      <trkpt lat="${p.lat.toStringAsFixed(7)}" '
+          'lon="${p.lon.toStringAsFixed(7)}">');
+      buf.writeln('        <ele>${p.altitude.toStringAsFixed(1)}</ele>');
+      buf.writeln('        <time>${p.time.toUtc().toIso8601String()}</time>');
+      buf.writeln('      </trkpt>');
+    }
+    buf.writeln('    </trkseg>');
+    buf.writeln('  </trk>');
+    buf.writeln('</gpx>');
+    return buf.toString();
+  }
+
+  static Future<void> shareGpx(GpsTrack track) async {
+    final gpx = buildGpx(track);
+    final bytes = Uint8List.fromList(utf8.encode(gpx));
+    final dateStr =
+        track.startedAt.toIso8601String().split('T').first;
+    final file = XFile.fromData(bytes,
+        name: 'track_$dateStr.gpx',
+        mimeType: 'application/gpx+xml');
+    await Share.shareXFiles([file], subject: 'GPS ტრეკი — $dateStr');
+  }
 
   static Future<void> sharePdf(List<BtkRecord> records) async {
     final bytes = await buildPdf(records);

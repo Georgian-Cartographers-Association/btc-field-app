@@ -74,6 +74,38 @@ class BasicInfoSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
+          // Altitude + Aspect row
+          Row(
+            children: [
+              Expanded(
+                child: _field(
+                  label: 'სიმაღლე (მ)',
+                  value: record.altitude != null
+                      ? record.altitude!.toStringAsFixed(0)
+                      : '',
+                  onChanged: (v) =>
+                      onChanged(record..altitude = double.tryParse(v)),
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true, signed: true),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _field(
+                  label: 'ასპექტი (°)',
+                  value: record.aspect != null
+                      ? record.aspect!.toStringAsFixed(0)
+                      : '',
+                  onChanged: (v) =>
+                      onChanged(record..aspect = double.tryParse(v)),
+                  hint: '0–360',
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           ElevatedButton.icon(
             onPressed: onDetectGps,
             icon: const Icon(Icons.gps_fixed, size: 18),

@@ -162,6 +162,8 @@ class BtkRecord {
   DateTime date;
   double? latitude;
   double? longitude;
+  double? altitude;  // metres above sea level
+  double? aspect;    // compass bearing 0–360°
   String location;
 
   // Physical-geographic
@@ -200,6 +202,8 @@ class BtkRecord {
     required this.date,
     this.latitude,
     this.longitude,
+    this.altitude,
+    this.aspect,
     this.location = '',
     this.geologicalFormation = '',
     this.reliefType = '',
@@ -230,6 +234,8 @@ class BtkRecord {
         'date': date.toIso8601String(),
         'latitude': latitude,
         'longitude': longitude,
+        'altitude': altitude,
+        'aspect': aspect,
         'location': location,
         'geologicalFormation': geologicalFormation,
         'reliefType': reliefType,
@@ -257,6 +263,8 @@ class BtkRecord {
         date: DateTime.tryParse(j['date'] ?? '') ?? DateTime.now(),
         latitude: (j['latitude'] as num?)?.toDouble(),
         longitude: (j['longitude'] as num?)?.toDouble(),
+        altitude: (j['altitude'] as num?)?.toDouble(),
+        aspect: (j['aspect'] as num?)?.toDouble(),
         location: j['location'] ?? '',
         geologicalFormation: j['geologicalFormation'] ?? '',
         reliefType: j['reliefType'] ?? '',

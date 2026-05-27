@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/btk_record.dart';
@@ -100,9 +101,25 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
             content: Text('კოორდინატების დადგენა...'),
             duration: Duration(seconds: 2)));
     final pos = await Geolocator.getCurrentPosition();
+
+    // Try to read compass heading (null if no magnetometer)
+    double? heading;
+    if (!kIsWeb) {
+      try {
+        final event = await FlutterCompass.events!
+            .first
+            .timeout(const Duration(seconds: 3));
+        heading = event.heading;
+      } catch (_) {
+        heading = null;
+      }
+    }
+
     _update(_record
       ..latitude = pos.latitude
-      ..longitude = pos.longitude);
+      ..longitude = pos.longitude
+      ..altitude = pos.altitude
+      ..aspect = heading);
   }
 
   // ─── Email sending ──────────────────────────────────────────────────────────

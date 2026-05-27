@@ -64,4 +64,23 @@ class AnalyticsService {
 
   static Future<void> logRasterAdded(String source) =>
       _log('raster_added', {'source': source}); // 'asset' | 'device'
+
+  // ── GPS Track ──────────────────────────────────────────────────────────────
+
+  static Future<void> logGpsTrackStarted() =>
+      _log('gps_track_started');
+
+  static Future<void> logGpsTrackStopped(int pointCount, double meters) =>
+      _log('gps_track_stopped', {
+        'point_count': pointCount,
+        'distance_m': meters.round(),
+      });
+
+  static Future<void> logGpxExported() =>
+      _log('gpx_exported');
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+
+  static Future<void> logExport(String format) =>
+      _log('records_exported', {'format': format}); // 'csv' | 'geojson' | 'pdf'
 }

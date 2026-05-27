@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io' show File;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_compass/flutter_compass.dart';
+import 'package:flutter_map_cache/flutter_map_cache.dart';
+import 'package:dio_cache_interceptor/dio_cache_interceptor.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,8 +29,11 @@ import 'widgets/layer_control_panel.dart';
 import 'widgets/measurement_layers.dart';
 import 'widgets/measurement_panel.dart';
 import 'widgets/weather_panel.dart';
+import '../../models/gps_track.dart';
+import '../../providers/gps_track_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/analytics_service.dart';
+import '../../services/export_service.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -39,6 +45,12 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   bool _addingPoint = false;
+
+  // Tile cache (MemCacheStore — in-session; tiles fetched once stay cached)
+  final _cacheStore = MemCacheStore();
+
+  // Compass heading (live) — null until magnetometer fires first event
+  double? _compassHeading;
 
   // GeoJSON boundaries
   List<List<LatLng>> _boundaryPolygons = [];
@@ -56,6 +68,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _loadGeojson(AppConstants.regionsGeojsonPath, (p) => _regionPolygons = p);
     _loadGeojson(AppConstants.municipalitiesGeojsonPath,
         (p) => _municipalityPolygons = p);
+    if (!kIsWeb) _initCompass();
+  }
+
+  void _initCompass() {
+    FlutterCompass.events?.listen((event) {
+      if (mounted && event.heading != null) {
+        setState(() => _compassHeading = event.heading);
+      }
+    });
   }
 
   Future<void> _loadGeojson(
@@ -144,11 +165,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               userAgentPackageName: 'ge.cartographers.btk',
             );
           } else {
-            // XYZ / WMTS
+            // XYZ / WMTS — use cached tile provider when available
             layer = TileLayer(
               urlTemplate: s.urlTemplate,
               subdomains: s.subdomains,
               userAgentPackageName: 'ge.cartographers.btk',
+              tileProvider: kIsWeb ? null : CachedTileProvider(store: _cacheStore),
             );
           }
           return s.opacity < 0.999
@@ -238,6 +260,104 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  // ── GPS Track finished sheet ──────────────────────────────────────────────
+
+  void _showTrackFinishedSheet(BuildContext ctx, GpsTrack track) {
+    // Calculate total distance using latlong2 Distance
+    double totalMeters = 0;
+    if (track.points.length >= 2) {
+      const calc = Distance();
+      for (int i = 1; i < track.points.length; i++) {
+        totalMeters += calc(
+          LatLng(track.points[i - 1].lat, track.points[i - 1].lon),
+          LatLng(track.points[i].lat, track.points[i].lon),
+        );
+      }
+    }
+
+    final duration = track.endedAt != null
+        ? track.endedAt!.difference(track.startedAt)
+        : Duration.zero;
+    final h = duration.inHours;
+    final m = duration.inMinutes.remainder(60);
+    final s = duration.inSeconds.remainder(60);
+    final durationStr = h > 0
+        ? '$h სთ $m წთ $s წმ'
+        : m > 0
+            ? '$m წთ $s წმ'
+            : '$s წმ';
+    final distStr = totalMeters >= 1000
+        ? '${(totalMeters / 1000).toStringAsFixed(2)} კმ'
+        : '${totalMeters.toStringAsFixed(0)} მ';
+
+    showModalBottomSheet(
+      context: ctx,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header ───────────────────────────────────────────────────
+            Row(children: [
+              const Icon(Icons.route, size: 28),
+              const SizedBox(width: 12),
+              Text('GPS ტრეკი დასრულდა',
+                  style: Theme.of(ctx)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+            ]),
+            const SizedBox(height: 20),
+            // ── Stats ────────────────────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _TrackStat(
+                    label: 'მანძილი',
+                    value: distStr,
+                    icon: Icons.straighten),
+                _TrackStat(
+                    label: 'ხანგრძლ.',
+                    value: durationStr,
+                    icon: Icons.timer_outlined),
+                _TrackStat(
+                    label: 'წერტილი',
+                    value: '${track.points.length}',
+                    icon: Icons.location_on_outlined),
+              ],
+            ),
+            const SizedBox(height: 24),
+            // ── Actions ──────────────────────────────────────────────────
+            Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.close),
+                  label: const Text('დახურვა'),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.download_outlined),
+                  label: const Text('GPX-ის გადმოტვირთვა'),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await ExportService.shareGpx(track);
+                    AnalyticsService.logGpxExported();
+                  },
+                ),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -266,11 +386,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               onTap: _onMapTap,
             ),
             children: [
-              // Base tile layers
+              // Base tile layers (cached on Android when cache is ready)
               if (layers.showOsm)
                 TileLayer(
                   urlTemplate: AppConstants.osmTileUrl,
                   userAgentPackageName: 'ge.cartographers.btk',
+                  tileProvider: kIsWeb
+                      ? null
+                      : CachedTileProvider(store: _cacheStore),
                 ),
               if (layers.showTopo)
                 Opacity(
@@ -279,6 +402,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     urlTemplate: AppConstants.topoTileUrl,
                     subdomains: AppConstants.topoSubdomains,
                     userAgentPackageName: 'ge.cartographers.btk',
+                    tileProvider: kIsWeb
+                        ? null
+                        : CachedTileProvider(store: _cacheStore),
                   ),
                 ),
               // WMS/WMTS tile services
@@ -319,6 +445,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               // Asset raster overlays
               ..._buildAssetRasterLayers(),
+              // GPS track polyline
+              Builder(builder: (ctx) {
+                final track = ref.watch(gpsTrackProvider);
+                if (track == null || track.points.length < 2) {
+                  return const SizedBox.shrink();
+                }
+                final pts =
+                    track.points.map((p) => LatLng(p.lat, p.lon)).toList();
+                return PolylineLayer(polylines: [
+                  Polyline(
+                    points: pts,
+                    color: Colors.redAccent,
+                    strokeWidth: 3.0,
+                  ),
+                ]);
+              }),
               // BTC markers
               if (layers.showPoints)
                 MarkerLayer(
@@ -381,6 +523,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
 
+          // ── Compass badge (Android only, shows when heading known) ─────
+          if (!kIsWeb && _compassHeading != null)
+            Positioned(
+              right: 14,
+              top: MediaQuery.of(context).padding.top + 34,
+              child: _CompassBadge(heading: _compassHeading!),
+            ),
+
           // ── Right-side buttons ──────────────────────────────────────────
           Positioned(
             right: 12,
@@ -406,6 +556,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   onTap: _goToMyLocation,
                 ),
                 const SizedBox(height: 8),
+                // GPS track Start/Stop (Android only)
+                if (!kIsWeb)
+                  Builder(builder: (ctx) {
+                    final trackNotifier =
+                        ref.read(gpsTrackProvider.notifier);
+                    final track = ref.watch(gpsTrackProvider);
+                    final isTracking =
+                        track != null && track.endedAt == null;
+                    return _MapButton(
+                      icon: isTracking
+                          ? Icons.stop_circle_outlined
+                          : Icons.route,
+                      active: isTracking,
+                      activeColor: Colors.red,
+                      onTap: () async {
+                        if (isTracking) {
+                          final finished =
+                              await trackNotifier.stopTracking();
+                          if (!ctx.mounted) return;
+                          if (finished != null &&
+                              finished.points.isNotEmpty) {
+                            _showTrackFinishedSheet(ctx, finished);
+                          }
+                        } else {
+                          await trackNotifier.startTracking();
+                        }
+                      },
+                    );
+                  }),
+                if (!kIsWeb) const SizedBox(height: 8),
                 // Weather forecast
                 _MapButton(
                   icon: Icons.wb_cloudy_outlined,
@@ -561,16 +741,26 @@ class _MapButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool active;
+  final Color? activeColor; // overrides primary when active
 
-  const _MapButton({required this.icon, required this.onTap, this.active = false});
+  const _MapButton({
+    required this.icon,
+    required this.onTap,
+    this.active = false,
+    this.activeColor,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveColor =
+        active ? (activeColor ?? Theme.of(context).colorScheme.primary) : null;
     return Material(
       elevation: 3,
       borderRadius: BorderRadius.circular(12),
       color: active
-          ? Theme.of(context).colorScheme.primaryContainer
+          ? (activeColor != null
+              ? activeColor!.withValues(alpha: 0.15)
+              : Theme.of(context).colorScheme.primaryContainer)
           : Theme.of(context).cardColor,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -578,11 +768,7 @@ class _MapButton extends StatelessWidget {
         child: SizedBox(
           width: 44,
           height: 44,
-          child: Icon(
-            icon,
-            size: 22,
-            color: active ? Theme.of(context).colorScheme.primary : null,
-          ),
+          child: Icon(icon, size: 22, color: effectiveColor),
         ),
       ),
     );
@@ -618,6 +804,76 @@ class _BottomBarButton extends StatelessWidget {
             Icon(icon, size: 22, color: color),
             const SizedBox(height: 2),
             Text(label, style: TextStyle(fontSize: 10, color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── GPS track stats tile ──────────────────────────────────────────────────────
+
+class _TrackStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _TrackStat(
+      {required this.label, required this.value, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 28, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(height: 4),
+        Text(value,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 2),
+        Text(label,
+            style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.6))),
+      ],
+    );
+  }
+}
+
+// ── Compass badge ─────────────────────────────────────────────────────────────
+
+class _CompassBadge extends StatelessWidget {
+  final double heading; // 0–360
+
+  const _CompassBadge({required this.heading});
+
+  @override
+  Widget build(BuildContext context) {
+    // Cardinal direction label
+    final labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    final cardinal = labels[((heading + 22.5) % 360 ~/ 45).clamp(0, 7)];
+
+    return Material(
+      elevation: 3,
+      borderRadius: BorderRadius.circular(12),
+      color: Theme.of(context).cardColor,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.rotate(
+              angle: heading * 3.14159265 / 180,
+              child: Icon(Icons.navigation,
+                  size: 16, color: Theme.of(context).colorScheme.primary),
+            ),
+            const SizedBox(width: 4),
+            Text('${heading.round()}°  $cardinal',
+                style: const TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w600)),
           ],
         ),
       ),

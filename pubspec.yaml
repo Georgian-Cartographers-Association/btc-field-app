@@ -50,6 +50,14 @@ dependencies:
   # Screen always-on
   wakelock_plus: ^1.3.3
 
+  # Compass sensor
+  flutter_compass: ^0.7.0
+
+  # Offline tile caching
+  flutter_map_cache: ^1.5.1
+  dio: ^5.7.0
+  dio_cache_interceptor: ^3.5.0
+
   # Photos
   image_picker: ^1.1.2
 
