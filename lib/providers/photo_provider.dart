@@ -5,17 +5,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../database/btk_database.dart';
 import '../models/photo.dart';
-import '../providers/settings_provider.dart';
-import '../services/photo_sync_service.dart';
-import 'auth_provider.dart';
 
 class PhotoNotifier extends StateNotifier<List<Photo>> {
-  PhotoNotifier(this.recordId, this._ref) : super([]) {
+  PhotoNotifier(this.recordId) : super([]) {
     _load();
   }
 
   final String recordId;
-  final Ref _ref;
 
   Future<void> _load() async {
     state = await BtkDatabase.getPhotos(recordId);
@@ -29,7 +25,6 @@ class PhotoNotifier extends StateNotifier<List<Photo>> {
     );
     if (file == null) return;
 
-    // Copy to app documents so it survives app updates
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory('${docs.path}/photos/$recordId');
     await dir.create(recursive: true);
@@ -48,58 +43,16 @@ class PhotoNotifier extends StateNotifier<List<Photo>> {
     );
     await BtkDatabase.insertPhoto(photo);
     state = [...state, photo];
-
-    // ── Try cloud upload ───────────────────────────────────────────
-    _tryUpload(photo);
-  }
-
-  /// Manually trigger upload for a specific photo (e.g. from the UI button).
-  Future<void> uploadPhoto(Photo photo) async {
-    await _tryUpload(photo);
-  }
-
-  Future<void> _tryUpload(Photo photo) async {
-    final settings = _ref.read(settingsProvider);
-    if (settings.storageMode != StorageMode.cloud) return;
-    if (settings.photoSyncMode == PhotoSyncMode.none) return;
-
-    final user = _ref.read(authProvider).valueOrNull;
-    if (user == null) return;
-
-    final url = await PhotoSyncService.upload(
-      photo: photo,
-      uid: user.uid,
-      mode: settings.photoSyncMode,
-    );
-
-    if (url != null) {
-      await BtkDatabase.updatePhotoCloudUrl(photo.id, url);
-      // Update state
-      state = [
-        for (final p in state)
-          if (p.id == photo.id) p.copyWith(cloudUrl: url) else p
-      ];
-    }
   }
 
   Future<void> delete(Photo photo) async {
     await BtkDatabase.deletePhoto(photo.id);
     try { await File(photo.filePath).delete(); } catch (_) {}
-
-    // Delete from cloud if uploaded
-    if (photo.cloudUrl != null) {
-      final user = _ref.read(authProvider).valueOrNull;
-      if (user != null) {
-        await PhotoSyncService.delete(photo: photo, uid: user.uid);
-      }
-    }
-
     state = state.where((p) => p.id != photo.id).toList();
   }
 }
 
-/// Family provider — one notifier per record ID.
 final photoProvider =
     StateNotifierProvider.family<PhotoNotifier, List<Photo>, String>(
-  (ref, recordId) => PhotoNotifier(recordId, ref),
+  (ref, recordId) => PhotoNotifier(recordId),
 );

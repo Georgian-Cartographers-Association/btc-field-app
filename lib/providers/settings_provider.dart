@@ -10,12 +10,6 @@ enum StorageMode {
   cloud, // Firestore — requires Firebase Auth
 }
 
-/// When / whether to sync photos to Firebase Storage.
-enum PhotoSyncMode {
-  none,     // photos stay local only
-  wifiOnly, // upload (compressed) when on WiFi
-  always,   // upload (compressed) on any connection
-}
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -24,7 +18,6 @@ class SettingsState {
   final int pdfPage;
   final bool screenAwake; // keep screen on while map is open
   final StorageMode storageMode;
-  final PhotoSyncMode photoSyncMode;
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
@@ -33,7 +26,6 @@ class SettingsState {
     this.pdfPage = 0,
     this.screenAwake = false,
     this.storageMode = StorageMode.local,
-    this.photoSyncMode = PhotoSyncMode.none,
   });
 
   SettingsState copyWith({
@@ -43,7 +35,6 @@ class SettingsState {
     int? pdfPage,
     bool? screenAwake,
     StorageMode? storageMode,
-    PhotoSyncMode? photoSyncMode,
   }) =>
       SettingsState(
         themeMode: themeMode ?? this.themeMode,
@@ -52,7 +43,6 @@ class SettingsState {
         pdfPage: pdfPage ?? this.pdfPage,
         screenAwake: screenAwake ?? this.screenAwake,
         storageMode: storageMode ?? this.storageMode,
-        photoSyncMode: photoSyncMode ?? this.photoSyncMode,
       );
 }
 
@@ -68,7 +58,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final pdfPage = prefs.getInt(AppConstants.prefPdfPage) ?? 0;
     final screenAwake = prefs.getBool('screen_awake') ?? false;
     final storageModeStr = prefs.getString('storage_mode') ?? 'local';
-    final photoSyncStr = prefs.getString('photo_sync_mode') ?? 'none';
 
     // Migrate: old single-email string → new list
     List<String> emails = [];
@@ -89,16 +78,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       screenAwake: screenAwake,
       storageMode:
           storageModeStr == 'cloud' ? StorageMode.cloud : StorageMode.local,
-      photoSyncMode: _parsePhotoSync(photoSyncStr),
     );
-  }
-
-  static PhotoSyncMode _parsePhotoSync(String s) {
-    switch (s) {
-      case 'wifi': return PhotoSyncMode.wifiOnly;
-      case 'always': return PhotoSyncMode.always;
-      default: return PhotoSyncMode.none;
-    }
   }
 
   Future<void> _persistEmails() async {
@@ -165,16 +145,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
         'storage_mode', mode == StorageMode.cloud ? 'cloud' : 'local');
   }
 
-  Future<void> setPhotoSyncMode(PhotoSyncMode mode) async {
-    state = state.copyWith(photoSyncMode: mode);
-    final prefs = await SharedPreferences.getInstance();
-    final str = switch (mode) {
-      PhotoSyncMode.wifiOnly => 'wifi',
-      PhotoSyncMode.always => 'always',
-      PhotoSyncMode.none => 'none',
-    };
-    await prefs.setString('photo_sync_mode', str);
-  }
 }
 
 final settingsProvider =

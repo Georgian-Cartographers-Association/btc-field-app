@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../models/photo.dart';
-import '../../../providers/auth_provider.dart';
 import '../../../providers/photo_provider.dart';
-import '../../../providers/settings_provider.dart';
 
 /// Photo gallery section — shown as the last tab in BtkFormScreen.
 /// Android-only: web shows a placeholder.
@@ -17,10 +15,6 @@ class PhotosSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final photos = ref.watch(photoProvider(recordId));
     final notifier = ref.read(photoProvider(recordId).notifier);
-    final settings = ref.watch(settingsProvider);
-    final isCloud = settings.storageMode == StorageMode.cloud &&
-        ref.watch(authProvider).valueOrNull != null;
-    final syncMode = settings.photoSyncMode;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -43,13 +37,6 @@ class PhotosSection extends ConsumerWidget {
               ),
             ],
           ),
-
-          // ── Cloud sync status bar ─────────────────────────────────────
-          if (isCloud) ...[
-            const SizedBox(height: 10),
-            _SyncStatusBar(photos: photos, syncMode: syncMode),
-          ],
-
           const SizedBox(height: 16),
 
           // ── Grid ─────────────────────────────────────────────────────
@@ -67,12 +54,8 @@ class PhotosSection extends ConsumerWidget {
               itemCount: photos.length,
               itemBuilder: (context, i) => _PhotoTile(
                 photo: photos[i],
-                showCloudBadge: isCloud,
                 onTap: () => _openGallery(context, photos, i),
                 onDelete: () => _confirmDelete(context, notifier, photos[i]),
-                onUpload: syncMode != PhotoSyncMode.none
-                    ? () => notifier.uploadPhoto(photos[i])
-                    : null,
               ),
             ),
         ],
@@ -114,74 +97,24 @@ class PhotosSection extends ConsumerWidget {
   }
 }
 
-// ── Sync status bar ──────────────────────────────────────────────────────────
-
-class _SyncStatusBar extends StatelessWidget {
-  final List<Photo> photos;
-  final PhotoSyncMode syncMode;
-  const _SyncStatusBar({required this.photos, required this.syncMode});
-
-  @override
-  Widget build(BuildContext context) {
-    if (photos.isEmpty) return const SizedBox.shrink();
-
-    final uploaded = photos.where((p) => p.cloudUrl != null).length;
-    final pending = photos.length - uploaded;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(children: [
-        Icon(
-          pending == 0 ? Icons.cloud_done_outlined : Icons.cloud_sync_outlined,
-          size: 16,
-          color: pending == 0 ? Colors.green : Colors.orange,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          pending == 0
-              ? 'ყველა ფოტო Cloud-შია ($uploaded)'
-              : syncMode == PhotoSyncMode.none
-                  ? '$uploaded ატვირთულია · $pending ლოკალური'
-                  : '$uploaded ატვირთულია · $pending ელოდება',
-          style: const TextStyle(fontSize: 12),
-        ),
-      ]),
-    );
-  }
-}
-
 // ── Photo tile ───────────────────────────────────────────────────────────────
 
 class _PhotoTile extends StatelessWidget {
   final Photo photo;
-  final bool showCloudBadge;
   final VoidCallback onTap;
   final VoidCallback onDelete;
-  final VoidCallback? onUpload; // null when sync disabled
 
-  const _PhotoTile({
-    required this.photo,
-    required this.showCloudBadge,
-    required this.onTap,
-    required this.onDelete,
-    this.onUpload,
-  });
+  const _PhotoTile(
+      {required this.photo, required this.onTap, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    final isUploaded = photo.cloudUrl != null;
-
     return GestureDetector(
       onTap: onTap,
       onLongPress: onDelete,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Image ──────────────────────────────────────────────────
           Image.file(
             File(photo.filePath),
             fit: BoxFit.cover,
@@ -191,40 +124,7 @@ class _PhotoTile extends StatelessWidget {
                   color: Colors.grey),
             ),
           ),
-
-          // ── Cloud status badge (bottom-left) ───────────────────────
-          if (showCloudBadge)
-            Positioned(
-              bottom: 3,
-              left: 3,
-              child: GestureDetector(
-                onTap: (!isUploaded && onUpload != null) ? onUpload : null,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isUploaded
-                            ? Icons.cloud_done
-                            : (onUpload != null
-                                ? Icons.cloud_upload_outlined
-                                : Icons.phone_android),
-                        size: 12,
-                        color: isUploaded ? Colors.greenAccent : Colors.white70,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-          // ── Delete button (top-right) ──────────────────────────────
+          // Delete button (top-right)
           Positioned(
             top: 3,
             right: 3,
@@ -236,8 +136,7 @@ class _PhotoTile extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 padding: const EdgeInsets.all(3),
-                child:
-                    const Icon(Icons.close, size: 14, color: Colors.white),
+                child: const Icon(Icons.close, size: 14, color: Colors.white),
               ),
             ),
           ),

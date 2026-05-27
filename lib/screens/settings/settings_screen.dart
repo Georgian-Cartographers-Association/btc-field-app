@@ -216,17 +216,6 @@ class _StorageSection extends ConsumerStatefulWidget {
 class _StorageSectionState extends ConsumerState<_StorageSection> {
   bool _busy = false;
 
-  String _photoSyncDesc(PhotoSyncMode mode) {
-    switch (mode) {
-      case PhotoSyncMode.none:
-        return 'ფოტოები მხოლოდ ამ მოწყობილობაზე ინახება';
-      case PhotoSyncMode.wifiOnly:
-        return 'WiFi-ზე ავტომატურად ატვირთვა (კომპრესიით, ~80% პატარა)';
-      case PhotoSyncMode.always:
-        return 'ნებისმიერ კავშირზე ატვირთვა (კომპრესიით)';
-    }
-  }
-
   Future<void> _switchToCloud() async {
     // If not logged in → open AuthScreen; it sets storageMode itself on success
     final user = ref.read(authProvider).valueOrNull;
@@ -372,44 +361,6 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
                   ),
           ),
 
-          // ── Photo sync mode ────────────────────────────────────
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text('ფოტოების სინქრონიზაცია',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: SegmentedButton<PhotoSyncMode>(
-              segments: const [
-                ButtonSegment(
-                  value: PhotoSyncMode.none,
-                  icon: Icon(Icons.phone_android, size: 16),
-                  label: Text('ლოკალური'),
-                ),
-                ButtonSegment(
-                  value: PhotoSyncMode.wifiOnly,
-                  icon: Icon(Icons.wifi, size: 16),
-                  label: Text('WiFi-ზე'),
-                ),
-                ButtonSegment(
-                  value: PhotoSyncMode.always,
-                  icon: Icon(Icons.cloud_upload_outlined, size: 16),
-                  label: Text('ყოველთვის'),
-                ),
-              ],
-              selected: {widget.settings.photoSyncMode},
-              onSelectionChanged: (s) =>
-                  widget.notifier.setPhotoSyncMode(s.first),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-            child: Text(
-              _photoSyncDesc(widget.settings.photoSyncMode),
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
-            ),
-          ),
         ],
 
         if (mode == StorageMode.local)
