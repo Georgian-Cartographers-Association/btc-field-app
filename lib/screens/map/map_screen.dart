@@ -24,6 +24,7 @@ import '../settings/settings_screen.dart';
 import 'widgets/layer_control_panel.dart';
 import 'widgets/measurement_layers.dart';
 import 'widgets/measurement_panel.dart';
+import 'widgets/weather_panel.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -214,6 +215,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
+  // ── Weather ───────────────────────────────────────────────────────────────
+
+  void _openWeather() {
+    final center = _mapController.camera.center;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => WeatherPanel(
+        lat: center.latitude,
+        lon: center.longitude,
+      ),
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -374,6 +391,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 _MapButton(
                   icon: Icons.my_location,
                   onTap: _goToMyLocation,
+                ),
+                const SizedBox(height: 8),
+                // Weather forecast
+                _MapButton(
+                  icon: Icons.wb_cloudy_outlined,
+                  onTap: _openWeather,
                 ),
                 const SizedBox(height: 8),
                 // Raster + WMS services (above vector controls)
