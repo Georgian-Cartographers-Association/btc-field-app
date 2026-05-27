@@ -8,6 +8,7 @@ import '../../models/btk_record.dart';
 import '../../providers/btk_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../pdf/pdf_viewer_screen.dart';
+import '../../services/analytics_service.dart';
 import 'sections/basic_info_section.dart';
 import 'sections/physical_geo_section.dart';
 import 'sections/vegetation_section.dart';
@@ -73,6 +74,7 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
   Future<void> _save() async {
     _autoSaveTimer?.cancel();
     await ref.read(btkProvider.notifier).update(_record);
+    AnalyticsService.logRecordSaved();
     if (!mounted) return;
     setState(() => _dirty = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -123,7 +125,10 @@ class _BtkFormScreenState extends ConsumerState<BtkFormScreen>
         'ბტკ ჩანაწერი ${_record.id} — ${_record.date.toString().split(' ')[0]}');
     final body = Uri.encodeComponent(_record.toEmailText());
     final uri = Uri.parse('mailto:$to?subject=$subject&body=$body');
-    if (await canLaunchUrl(uri)) await launchUrl(uri);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      AnalyticsService.logEmailSent(targets.length);
+    }
   }
 
   Future<List<String>?> _pickEmails(List<String> all) {

@@ -25,6 +25,7 @@ import 'widgets/layer_control_panel.dart';
 import 'widgets/measurement_layers.dart';
 import 'widgets/measurement_panel.dart';
 import 'widgets/weather_panel.dart';
+import '../../services/analytics_service.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -168,6 +169,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
     final pos = await Geolocator.getCurrentPosition();
     _mapController.move(LatLng(pos.latitude, pos.longitude), 13.0);
+    AnalyticsService.logGpsDetect();
   }
 
   // ── Map tap ──────────────────────────────────────────────────────────────
@@ -190,6 +192,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         .read(btkProvider.notifier)
         .add(lat: latlng.latitude, lon: latlng.longitude)
         .then((record) {
+      AnalyticsService.logRecordCreated();
       if (!mounted) return;
       _openForm(record);
     });
@@ -208,6 +211,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         _measureMode = MeasureMode.coordinate;
         _measurePoints = [];
         _addingPoint = false;
+        AnalyticsService.logMeasurement('coordinate');
       } else {
         _measureMode = MeasureMode.none;
         _measurePoints = [];
@@ -218,6 +222,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ── Weather ───────────────────────────────────────────────────────────────
 
   void _openWeather() {
+    AnalyticsService.logWeatherViewed();
     final center = _mapController.camera.center;
     showModalBottomSheet(
       context: context,
@@ -421,8 +426,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 const SizedBox(height: 8),
                 _MapButton(
                   icon: Icons.menu_book_outlined,
-                  onTap: () => Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
+                  onTap: () {
+                    AnalyticsService.logPdfOpened();
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const PdfViewerScreen()));
+                  },
                 ),
                 const SizedBox(height: 8),
                 // Measurement button
@@ -516,8 +524,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     _BottomBarButton(
                       icon: Icons.picture_as_pdf_outlined,
                       label: 'მეთოდიკა',
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => const PdfViewerScreen())),
+                      onTap: () {
+                        AnalyticsService.logPdfOpened();
+                        Navigator.push(context,
+                            MaterialPageRoute(builder: (_) => const PdfViewerScreen()));
+                      },
                     ),
                     _BottomBarButton(
                       icon: Icons.settings_outlined,

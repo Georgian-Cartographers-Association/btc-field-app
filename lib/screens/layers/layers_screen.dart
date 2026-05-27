@@ -9,6 +9,7 @@ import 'dart:io' show File, Directory;
 import '../../models/tile_service.dart';
 import '../../providers/raster_provider.dart';
 import '../../providers/tile_service_provider.dart';
+import '../../services/analytics_service.dart';
 
 class LayersScreen extends ConsumerStatefulWidget {
   const LayersScreen({super.key});
@@ -141,8 +142,11 @@ class _RasterTabState extends ConsumerState<_RasterTab> {
                               children: [
                                 Switch(
                                   value: layer.visible,
-                                  onChanged: (_) =>
-                                      notifier.toggleVisible(layer.id),
+                                  onChanged: (_) {
+                                    notifier.toggleVisible(layer.id);
+                                    AnalyticsService.logLayerToggled(
+                                        'raster:${layer.name}', !layer.visible);
+                                  },
                                 ),
                                 if (layer.isDeviceLayer)
                                   IconButton(
@@ -233,6 +237,7 @@ class _RasterTabState extends ConsumerState<_RasterTab> {
             filePath: savedPath,
             fileBytes: kIsWeb ? bytes : null,
           );
+      AnalyticsService.logRasterAdded(kIsWeb ? 'web' : 'device');
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -462,8 +467,11 @@ class _TileServiceTab extends ConsumerWidget {
                               children: [
                                 Switch(
                                   value: svc.visible,
-                                  onChanged: (_) =>
-                                      notifier.toggleVisible(svc.id),
+                                  onChanged: (_) {
+                                    notifier.toggleVisible(svc.id);
+                                    AnalyticsService.logLayerToggled(
+                                        'tile:${svc.name}', !svc.visible);
+                                  },
                                 ),
                                 PopupMenuButton<String>(
                                   icon: const Icon(Icons.more_vert, size: 20),
@@ -552,6 +560,7 @@ class _TileServiceTab extends ConsumerWidget {
       builder: (ctx) => _TemplateSheet(
         onSelected: (tpl, name) {
           ref.read(tileServiceProvider.notifier).addFromTemplate(tpl, name);
+          AnalyticsService.logTileServiceAdded('template');
           Navigator.pop(ctx);
         },
       ),
@@ -564,6 +573,7 @@ class _TileServiceTab extends ConsumerWidget {
       builder: (ctx) => _TileServiceDialog(
         onSave: (svc) {
           ref.read(tileServiceProvider.notifier).add(svc);
+          AnalyticsService.logTileServiceAdded(svc.serviceType.name); // 'xyz' or 'wms'
           Navigator.pop(ctx);
         },
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/btk_provider.dart';
+import '../../services/analytics_service.dart';
 import '../../services/export_service.dart';
 import '../form/btk_form_screen.dart';
 
@@ -149,6 +150,7 @@ class RecordsScreen extends ConsumerWidget {
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
               ref.read(btkProvider.notifier).remove(id);
+              AnalyticsService.logRecordDeleted();
               Navigator.pop(ctx);
             },
             child: const Text('წაშლა', style: TextStyle(color: Colors.white)),
