@@ -6,7 +6,7 @@ class WeatherHour {
   final double windDir;     // degrees from north
   final double humidity;    // %
   final double precipitation; // mm
-  final String symbolCode;  // e.g. "clearsky_day", "rain"
+  final String symbolCode;
 
   const WeatherHour({
     required this.time,
@@ -18,10 +18,8 @@ class WeatherHour {
     required this.symbolCode,
   });
 
-  /// Human-readable weather emoji for this symbol.
   String get emoji => WeatherData.symbolEmoji(symbolCode);
 
-  /// Georgian wind direction label.
   String get windDirLabel {
     const dirs = ['ჩ', 'ჩ-აღ', 'აღ', 'სამ-აღ', 'სამ', 'სამ-დ', 'დ', 'ჩ-დ'];
     final idx = ((windDir + 22.5) / 45).floor() % 8;
@@ -29,14 +27,88 @@ class WeatherHour {
   }
 }
 
+/// One-day summary for the multi-day forecast strip.
+class WeatherDay {
+  final DateTime date;        // local midnight
+  final double minTemp;
+  final double maxTemp;
+  final String symbolCode;    // representative symbol (≈ noon)
+  final double totalPrecip;   // mm
+
+  const WeatherDay({
+    required this.date,
+    required this.minTemp,
+    required this.maxTemp,
+    required this.symbolCode,
+    required this.totalPrecip,
+  });
+
+  String get emoji => WeatherData.symbolEmoji(symbolCode);
+
+  /// Georgian short day name (or დღეს / ხვალ).
+  String get dayName {
+    final today = DateTime.now();
+    final d = date;
+    if (d.year == today.year && d.month == today.month && d.day == today.day) {
+      return 'დღეს';
+    }
+    final tomorrow = today.add(const Duration(days: 1));
+    if (d.year == tomorrow.year &&
+        d.month == tomorrow.month &&
+        d.day == tomorrow.day) {
+      return 'ხვალ';
+    }
+    const names = [
+      'კვირა', 'ორშ', 'სამშ', 'ოთხ', 'ხუთ', 'პარ', 'შაბ',
+    ];
+    return names[d.weekday % 7];
+  }
+
+  factory WeatherDay.fromHours(DateTime date, List<WeatherHour> hours) {
+    if (hours.isEmpty) {
+      return WeatherDay(
+          date: date,
+          minTemp: 0,
+          maxTemp: 0,
+          symbolCode: 'cloudy',
+          totalPrecip: 0);
+    }
+    final temps = hours.map((h) => h.temperature).toList()..sort();
+    final precip =
+        hours.fold<double>(0, (sum, h) => sum + h.precipitation);
+
+    // Pick symbol from the entry closest to 12:00 local time
+    WeatherHour? noonEntry;
+    int minDiff = 999;
+    for (final h in hours) {
+      final local = h.time.toLocal();
+      final diff = (local.hour - 12).abs();
+      if (diff < minDiff) {
+        minDiff = diff;
+        noonEntry = h;
+      }
+    }
+
+    return WeatherDay(
+      date: date,
+      minTemp: temps.first,
+      maxTemp: temps.last,
+      symbolCode: noonEntry?.symbolCode ?? hours.first.symbolCode,
+      totalPrecip: precip,
+    );
+  }
+}
+
 class WeatherData {
   final WeatherHour current;
   final List<WeatherHour> hourly; // next ~24 h
+  final List<WeatherDay> daily;   // next ~7 days (from tomorrow onward)
   final DateTime fetchedAt;
 
   const WeatherData({
     required this.current,
     required this.hourly,
+    required this.daily,
     required this.fetchedAt,
   });
 
@@ -45,7 +117,9 @@ class WeatherData {
   factory WeatherData.fromJson(Map<String, dynamic> json) {
     final timeseries = json['properties']['timeseries'] as List;
     final now = DateTime.now().toUtc();
-    final hours = <WeatherHour>[];
+
+    // Collect ALL future hours (no 25-limit) for daily grouping
+    final allHours = <WeatherHour>[];
 
     for (final item in timeseries) {
       final time = DateTime.parse(item['time'] as String);
@@ -64,7 +138,7 @@ class WeatherData {
               0) as num)
           .toDouble();
 
-      hours.add(WeatherHour(
+      allHours.add(WeatherHour(
         time: time,
         temperature: (details['air_temperature'] as num).toDouble(),
         windSpeed: (details['wind_speed'] as num).toDouble(),
@@ -73,15 +147,47 @@ class WeatherData {
         precipitation: precip,
         symbolCode: symbol,
       ));
-
-      if (hours.length >= 25) break;
     }
 
-    if (hours.isEmpty) throw const FormatException('Empty timeseries');
+    if (allHours.isEmpty) throw const FormatException('Empty timeseries');
+
+    // ── Hourly strip (first 13 entries = current + 12 h) ───────────────────
+    final hourly = allHours.skip(1).take(12).toList();
+
+    // ── Daily grouping ──────────────────────────────────────────────────────
+    final dayMap = <String, List<WeatherHour>>{};
+    for (final h in allHours) {
+      final local = h.time.toLocal();
+      // Key = "YYYY-MM-DD" in local timezone
+      final key =
+          '${local.year.toString().padLeft(4, '0')}-'
+          '${local.month.toString().padLeft(2, '0')}-'
+          '${local.day.toString().padLeft(2, '0')}';
+      dayMap.putIfAbsent(key, () => []).add(h);
+    }
+
+    // Skip today (already shown as current + hourly strip)
+    final todayLocal = DateTime.now();
+    final todayKey =
+        '${todayLocal.year.toString().padLeft(4, '0')}-'
+        '${todayLocal.month.toString().padLeft(2, '0')}-'
+        '${todayLocal.day.toString().padLeft(2, '0')}';
+
+    final daily = dayMap.entries
+        .where((e) => e.key != todayKey)
+        .take(7)
+        .map((e) {
+          final parts = e.key.split('-');
+          final date = DateTime(
+              int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+          return WeatherDay.fromHours(date, e.value);
+        })
+        .toList();
 
     return WeatherData(
-      current: hours.first,
-      hourly: hours.skip(1).toList(),
+      current: allHours.first,
+      hourly: hourly,
+      daily: daily,
       fetchedAt: DateTime.now(),
     );
   }
@@ -117,7 +223,9 @@ class WeatherData {
     if (c.contains('fog')) return 'ნისლი';
     if (c.contains('clearsky')) return 'მოწმენდილი';
     if (c.contains('fair')) return 'ნათელი';
-    if (c.contains('partlycloudy') || c.contains('partly')) return 'ნაწილობრივ ღრუბლიანი';
+    if (c.contains('partlycloudy') || c.contains('partly')) {
+      return 'ნაწილობრივ ღრუბლიანი';
+    }
     if (c.contains('overcast')) return 'მოღრუბლული';
     if (c.contains('cloud')) return 'ღრუბლიანი';
     return 'ამინდი';

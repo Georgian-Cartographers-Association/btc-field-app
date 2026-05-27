@@ -216,7 +216,19 @@ class _WeatherContent extends StatelessWidget {
           ),
         ),
 
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
+
+        // ── Multi-day forecast ──────────────────────────────────────────────
+        if (data.daily.isNotEmpty) ...[
+          Text('მომდევნო დღეები',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8)),
+          const SizedBox(height: 8),
+          ...data.daily.map((day) => _DailyRow(day: day)),
+          const SizedBox(height: 8),
+        ],
 
         // ── Attribution ─────────────────────────────────────────────────────
         Row(
@@ -307,6 +319,85 @@ class _ForecastTile extends StatelessWidget {
                 style: const TextStyle(fontSize: 9, color: Colors.blue))
           else
             const SizedBox(height: 10),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Daily row widget ────────────────────────────────────────────────────────
+
+class _DailyRow extends StatelessWidget {
+  final WeatherDay day;
+  const _DailyRow({required this.day});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasRain = day.totalPrecip > 0.2;
+    final isHighlighted =
+        day.dayName == 'ხვალ' || day.dayName == 'დღეს';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isHighlighted
+            ? colorScheme.primaryContainer.withValues(alpha: 0.3)
+            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          // Day name
+          SizedBox(
+            width: 48,
+            child: Text(
+              day.dayName,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight:
+                    isHighlighted ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ),
+          // Emoji
+          Text(day.emoji, style: const TextStyle(fontSize: 22)),
+          const SizedBox(width: 8),
+          // Description (short)
+          Expanded(
+            child: Text(
+              WeatherData.symbolGeorgian(day.symbolCode),
+              style: Theme.of(context).textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Rain amount (if any)
+          if (hasRain) ...[
+            const Icon(Icons.water_drop_outlined, size: 13, color: Colors.blue),
+            const SizedBox(width: 2),
+            Text(
+              '${day.totalPrecip.toStringAsFixed(0)}მმ',
+              style: const TextStyle(fontSize: 11, color: Colors.blue),
+            ),
+            const SizedBox(width: 8),
+          ],
+          // Min / Max
+          Text(
+            '${day.minTemp.round()}°',
+            style: TextStyle(
+                fontSize: 13,
+                color: Colors.blue.shade400,
+                fontWeight: FontWeight.w600),
+          ),
+          const Text(' / ', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          Text(
+            '${day.maxTemp.round()}°',
+            style: TextStyle(
+                fontSize: 13,
+                color: Colors.deepOrange.shade400,
+                fontWeight: FontWeight.bold),
+          ),
         ],
       ),
     );
