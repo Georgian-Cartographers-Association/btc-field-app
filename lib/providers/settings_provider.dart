@@ -7,9 +7,9 @@ import '../core/constants.dart';
 /// Where BTK records are persisted.
 enum StorageMode {
   local, // SQLite (Android) / SharedPreferences (web) — default
-  cloud, // Firestore — requires Firebase Auth
+  cloud, // Firestore personal — requires Firebase Auth
+  expedition, // Firestore shared expedition — requires Firebase Auth + expId
 }
-
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -18,6 +18,7 @@ class SettingsState {
   final int pdfPage;
   final bool screenAwake; // keep screen on while map is open
   final StorageMode storageMode;
+  final String? expeditionId; // non-null only when storageMode == expedition
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
@@ -26,6 +27,7 @@ class SettingsState {
     this.pdfPage = 0,
     this.screenAwake = false,
     this.storageMode = StorageMode.local,
+    this.expeditionId,
   });
 
   SettingsState copyWith({
@@ -35,6 +37,7 @@ class SettingsState {
     int? pdfPage,
     bool? screenAwake,
     StorageMode? storageMode,
+    Object? expeditionId = _sentinel, // use _sentinel to distinguish null from "unset"
   }) =>
       SettingsState(
         themeMode: themeMode ?? this.themeMode,
@@ -43,8 +46,14 @@ class SettingsState {
         pdfPage: pdfPage ?? this.pdfPage,
         screenAwake: screenAwake ?? this.screenAwake,
         storageMode: storageMode ?? this.storageMode,
+        expeditionId: expeditionId == _sentinel
+            ? this.expeditionId
+            : expeditionId as String?,
       );
 }
+
+// Sentinel value so copyWith can distinguish "pass null" from "not provided"
+const Object _sentinel = Object();
 
 class SettingsNotifier extends StateNotifier<SettingsState> {
   SettingsNotifier() : super(const SettingsState()) {
@@ -58,6 +67,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final pdfPage = prefs.getInt(AppConstants.prefPdfPage) ?? 0;
     final screenAwake = prefs.getBool('screen_awake') ?? false;
     final storageModeStr = prefs.getString('storage_mode') ?? 'local';
+    final expeditionId = prefs.getString('expedition_id');
 
     // Migrate: old single-email string → new list
     List<String> emails = [];
@@ -76,9 +86,25 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       emails: emails,
       pdfPage: pdfPage,
       screenAwake: screenAwake,
-      storageMode:
-          storageModeStr == 'cloud' ? StorageMode.cloud : StorageMode.local,
+      storageMode: _parseStorageMode(storageModeStr),
+      expeditionId: expeditionId,
     );
+  }
+
+  static StorageMode _parseStorageMode(String s) {
+    switch (s) {
+      case 'cloud': return StorageMode.cloud;
+      case 'expedition': return StorageMode.expedition;
+      default: return StorageMode.local;
+    }
+  }
+
+  static String _storageModeStr(StorageMode m) {
+    switch (m) {
+      case StorageMode.cloud: return 'cloud';
+      case StorageMode.expedition: return 'expedition';
+      default: return 'local';
+    }
   }
 
   Future<void> _persistEmails() async {
@@ -128,7 +154,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   }
 
   Future<void> removeEmail(String email) async {
-    state = state.copyWith(emails: state.emails.where((e) => e != email).toList());
+    state = state.copyWith(
+        emails: state.emails.where((e) => e != email).toList());
     await _persistEmails();
   }
 
@@ -141,11 +168,32 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   Future<void> setStorageMode(StorageMode mode) async {
     state = state.copyWith(storageMode: mode);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        'storage_mode', mode == StorageMode.cloud ? 'cloud' : 'local');
+    await prefs.setString('storage_mode', _storageModeStr(mode));
   }
 
+  /// Enter expedition mode with a specific expedition ID.
+  Future<void> joinExpedition(String expeditionId) async {
+    state = state.copyWith(
+      storageMode: StorageMode.expedition,
+      expeditionId: expeditionId,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('storage_mode', 'expedition');
+    await prefs.setString('expedition_id', expeditionId);
+  }
+
+  /// Leave expedition and revert to cloud (personal) mode.
+  Future<void> leaveExpedition() async {
+    state = state.copyWith(
+      storageMode: StorageMode.cloud,
+      expeditionId: null,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('storage_mode', 'cloud');
+    await prefs.remove('expedition_id');
+  }
 }
 
 final settingsProvider =
-    StateNotifierProvider<SettingsNotifier, SettingsState>((ref) => SettingsNotifier());
+    StateNotifierProvider<SettingsNotifier, SettingsState>(
+        (ref) => SettingsNotifier());

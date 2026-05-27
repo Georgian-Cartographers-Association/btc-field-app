@@ -31,6 +31,7 @@ import 'widgets/measurement_panel.dart';
 import 'widgets/weather_panel.dart';
 import '../../models/gps_track.dart';
 import '../../providers/gps_track_provider.dart';
+import '../gps/gps_track_history_screen.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/analytics_service.dart';
 import '../../services/export_service.dart';
@@ -586,6 +587,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     );
                   }),
                 if (!kIsWeb) const SizedBox(height: 8),
+                // GPS track history (Android only)
+                if (!kIsWeb)
+                  _MapButton(
+                    icon: Icons.history,
+                    tooltip: 'ტრეკების ისტორია',
+                    onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const GpsTrackHistoryScreen())),
+                  ),
+                if (!kIsWeb) const SizedBox(height: 8),
                 // Weather forecast
                 _MapButton(
                   icon: Icons.wb_cloudy_outlined,
@@ -742,19 +754,21 @@ class _MapButton extends StatelessWidget {
   final VoidCallback onTap;
   final bool active;
   final Color? activeColor; // overrides primary when active
+  final String? tooltip;
 
   const _MapButton({
     required this.icon,
     required this.onTap,
     this.active = false,
     this.activeColor,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
     final effectiveColor =
         active ? (activeColor ?? Theme.of(context).colorScheme.primary) : null;
-    return Material(
+    Widget child = Material(
       elevation: 3,
       borderRadius: BorderRadius.circular(12),
       color: active
@@ -772,6 +786,10 @@ class _MapButton extends StatelessWidget {
         ),
       ),
     );
+    if (tooltip != null) {
+      child = Tooltip(message: tooltip!, child: child);
+    }
+    return child;
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../models/btk_record.dart';
 import '../repositories/cloud_repository.dart';
 import '../repositories/data_repository.dart';
+import '../repositories/expedition_repository.dart';
 import '../repositories/local_repository.dart';
 import 'auth_provider.dart';
 import 'settings_provider.dart';
@@ -19,7 +20,7 @@ class BtkNotifier extends StateNotifier<List<BtkRecord>> {
   void _init() {
     final s = _repo.stream;
     if (s != null) {
-      // Cloud: subscribe to Firestore real-time stream
+      // Cloud / expedition: subscribe to Firestore real-time stream
       _cloudSub = s.listen((records) {
         if (mounted) state = records;
       });
@@ -65,20 +66,34 @@ class BtkNotifier extends StateNotifier<List<BtkRecord>> {
   }
 }
 
-/// Provider automatically recreates BtkNotifier when storage mode or
-/// auth state changes — switching from local ↔ cloud reloads data.
+/// Provider automatically recreates BtkNotifier when storage mode, auth state
+/// or expedition ID changes — switching modes reloads data.
 final btkProvider =
     StateNotifierProvider<BtkNotifier, List<BtkRecord>>((ref) {
-  final mode =
-      ref.watch(settingsProvider.select((s) => s.storageMode));
-  final authAsync = ref.watch(authProvider);
-  final user = authAsync.valueOrNull;
+  final settings = ref.watch(
+    settingsProvider.select((s) => (
+      mode: s.storageMode,
+      expId: s.expeditionId,
+    )),
+  );
+  final user = ref.watch(authProvider).valueOrNull;
 
   final DataRepository repo;
-  if (mode == StorageMode.cloud && user != null) {
-    repo = CloudRepository(uid: user.uid);
-  } else {
-    repo = LocalRepository();
+  switch (settings.mode) {
+    case StorageMode.cloud:
+      if (user != null) {
+        repo = CloudRepository(uid: user.uid);
+      } else {
+        repo = LocalRepository();
+      }
+    case StorageMode.expedition:
+      if (user != null && settings.expId != null) {
+        repo = ExpeditionRepository(expeditionId: settings.expId!);
+      } else {
+        repo = LocalRepository();
+      }
+    case StorageMode.local:
+      repo = LocalRepository();
   }
 
   return BtkNotifier(repo);

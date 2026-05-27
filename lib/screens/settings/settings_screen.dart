@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,6 +10,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/sync_service.dart';
 import '../auth/auth_screen.dart';
+import '../expedition/expedition_screen.dart';
 
 const _githubUrl =
     'https://github.com/Georgian-Cartographers-Association/GCA-btc-field-app';
@@ -216,6 +218,8 @@ class _StorageSection extends ConsumerStatefulWidget {
 class _StorageSectionState extends ConsumerState<_StorageSection> {
   bool _busy = false;
 
+  // ── Switch helpers ────────────────────────────────────────────────────────
+
   Future<void> _switchToCloud() async {
     // If not logged in → open AuthScreen; it sets storageMode itself on success
     final user = ref.read(authProvider).valueOrNull;
@@ -226,7 +230,6 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
       );
       return;
     }
-    // Already logged in → just switch mode
     await widget.notifier.setStorageMode(StorageMode.cloud);
   }
 
@@ -251,6 +254,60 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
     );
     if (confirmed == true) {
       await widget.notifier.setStorageMode(StorageMode.local);
+    }
+  }
+
+  Future<void> _switchToExpedition() async {
+    // Must be logged in first
+    final user = ref.read(authProvider).valueOrNull;
+    if (user == null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+      );
+      if (!mounted) return;
+      final u2 = ref.read(authProvider).valueOrNull;
+      if (u2 == null) return; // login was cancelled
+    }
+    // Open create/join screen
+    final code = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const ExpeditionScreen()),
+    );
+    // If user cancelled without joining, revert to cloud (personal)
+    if (!mounted) return;
+    if (code == null) {
+      final currentMode = widget.settings.storageMode;
+      if (currentMode == StorageMode.expedition) return; // no change needed
+      await widget.notifier.setStorageMode(StorageMode.cloud);
+    }
+  }
+
+  Future<void> _leaveExpedition() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ექსპედიციის დატოვება'),
+        content: const Text(
+          'ექსპედიციის რეჟიმიდან გამოხვალთ და Cloud (პირადი) '
+          'რეჟიმზე გადაინაცვლებთ. ექსპედიციის მონაცემები '
+          'სერვერზე რჩება.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('გაუქმება')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('დატოვება',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.notifier.leaveExpedition();
     }
   }
 
@@ -297,15 +354,18 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
     await widget.notifier.setStorageMode(StorageMode.local);
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final mode = widget.settings.storageMode;
+    final expId = widget.settings.expeditionId;
     final userAsync = ref.watch(authProvider);
     final user = userAsync.valueOrNull;
 
     return Column(
       children: [
-        // Mode selector
+        // ── Mode selector ──────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: SegmentedButton<StorageMode>(
@@ -313,26 +373,34 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
               ButtonSegment(
                 value: StorageMode.local,
                 icon: Icon(Icons.storage_outlined),
-                label: Text('ლოკალური'),
+                label: Text('ლოკ.'),
               ),
               ButtonSegment(
                 value: StorageMode.cloud,
                 icon: Icon(Icons.cloud_outlined),
                 label: Text('Cloud'),
               ),
+              ButtonSegment(
+                value: StorageMode.expedition,
+                icon: Icon(Icons.group_outlined),
+                label: Text('ექსპ.'),
+              ),
             ],
             selected: {mode},
             onSelectionChanged: (s) async {
-              if (s.first == StorageMode.cloud) {
-                await _switchToCloud();
-              } else {
-                await _switchToLocal();
+              switch (s.first) {
+                case StorageMode.local:
+                  await _switchToLocal();
+                case StorageMode.cloud:
+                  await _switchToCloud();
+                case StorageMode.expedition:
+                  await _switchToExpedition();
               }
             },
           ),
         ),
 
-        // Cloud status row
+        // ── Cloud mode ─────────────────────────────────────────────────
         if (mode == StorageMode.cloud && user != null) ...[
           ListTile(
             leading: const Icon(Icons.account_circle_outlined),
@@ -360,9 +428,97 @@ class _StorageSectionState extends ConsumerState<_StorageSection> {
                     onPressed: _downloadCloud,
                   ),
           ),
-
+          // Expedition shortcut
+          ListTile(
+            leading: const Icon(Icons.group_outlined),
+            title: const Text('ექსპედიციის რეჟიმი'),
+            subtitle: const Text('ჯგუფური ერთობლივი მუშაობა'),
+            dense: true,
+            trailing: const Icon(Icons.arrow_forward_ios,
+                size: 14, color: Colors.grey),
+            onTap: _switchToExpedition,
+          ),
         ],
 
+        // ── Expedition mode ────────────────────────────────────────────
+        if (mode == StorageMode.expedition) ...[
+          if (user != null)
+            ListTile(
+              leading: const Icon(Icons.account_circle_outlined),
+              title: const Text('ანგარიში'),
+              subtitle: Text(user.email ?? user.uid),
+              dense: true,
+              trailing: TextButton(
+                onPressed: _signOut,
+                child: const Text('გამოსვლა',
+                    style: TextStyle(color: Colors.red)),
+              ),
+            ),
+          if (expId != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Card(
+                color: Theme.of(context).colorScheme.tertiaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Icon(Icons.group_outlined,
+                          color: Theme.of(context).colorScheme.tertiary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('ექსპედიციის კოდი',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onTertiaryContainer)),
+                            const SizedBox(height: 4),
+                            Text(
+                              expId,
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 6,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .tertiary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy_outlined),
+                        tooltip: 'კოდის კოპირება',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: expId));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('კოდი კოპირდა ✓')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ListTile(
+            leading: const Icon(Icons.exit_to_app_outlined,
+                color: Colors.deepOrange),
+            title: const Text('ექსპედიციის დატოვება'),
+            subtitle: const Text('Cloud (პირადი) რეჟიმზე დაბრუნება'),
+            dense: true,
+            onTap: _leaveExpedition,
+          ),
+        ],
+
+        // ── Local mode info ────────────────────────────────────────────
         if (mode == StorageMode.local)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
