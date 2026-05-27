@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -53,6 +54,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
       if (!mounted) return;
 
+      // ── Allowlist check ────────────────────────────────────────────
+      final email = cred.user!.email ?? '';
+      final allowed = await _isEmailAllowed(email);
+      if (!allowed) {
+        // Not on the list — sign out immediately
+        await FirebaseAuth.instance.signOut();
+        setState(() =>
+            _error = 'წვდომა შეზღუდულია. '
+                'ადმინისტრატორს მიმართეთ ამ ელ-ფოსტის დასამატებლად.');
+        return;
+      }
+
       // Ask if user wants to migrate local data to cloud
       final uid = cred.user!.uid;
       await _offerMigration(uid);
@@ -62,6 +75,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       setState(() => _error = 'შეცდომა: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Returns true if [email] exists in the allowed_users collection.
+  Future<bool> _isEmailAllowed(String email) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('allowed_users')
+          .doc(email)
+          .get();
+      return doc.exists;
+    } catch (_) {
+      // Firestore unreachable — deny access to be safe
+      return false;
     }
   }
 
