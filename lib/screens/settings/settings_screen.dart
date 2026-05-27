@@ -1,10 +1,14 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/sync_service.dart';
+import '../auth/auth_screen.dart';
 
 const _githubUrl =
     'https://github.com/Georgian-Cartographers-Association/GCA-btc-field-app';
@@ -123,6 +127,11 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const Divider(),
 
+          // ── მონაცემების შენახვა ───────────────────────────────────
+          const _SectionHeader('მონაცემების შენახვა'),
+          _StorageSection(settings: settings, notifier: notifier),
+          const Divider(),
+
           // ── შესახებ ────────────────────────────────────────────────
           const _SectionHeader('შესახებ'),
 
@@ -192,6 +201,190 @@ class _SectionHeader extends StatelessWidget {
         ),
       );
 }
+
+// ── Storage section ────────────────────────────────────────────────────────────
+
+class _StorageSection extends ConsumerStatefulWidget {
+  final SettingsState settings;
+  final SettingsNotifier notifier;
+  const _StorageSection({required this.settings, required this.notifier});
+
+  @override
+  ConsumerState<_StorageSection> createState() => _StorageSectionState();
+}
+
+class _StorageSectionState extends ConsumerState<_StorageSection> {
+  bool _busy = false;
+
+  Future<void> _switchToCloud() async {
+    // If not logged in → open AuthScreen; it sets storageMode itself on success
+    final user = ref.read(authProvider).valueOrNull;
+    if (user == null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+      );
+      return;
+    }
+    // Already logged in → just switch mode
+    await widget.notifier.setStorageMode(StorageMode.cloud);
+  }
+
+  Future<void> _switchToLocal() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('ლოკალური შენახვა'),
+        content: const Text(
+          'Cloud-ის ნაცვლად ლოკალური SQLite გამოყენება. '
+          'Cloud-ში ჩანაწერები არ წაიშლება.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('გაუქმება')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('გადართვა')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.notifier.setStorageMode(StorageMode.local);
+    }
+  }
+
+  Future<void> _downloadCloud() async {
+    final user = ref.read(authProvider).valueOrNull;
+    if (user == null) return;
+    setState(() => _busy = true);
+    try {
+      final count = await SyncService.downloadCloudToLocal(user.uid);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$count ჩანაწერი გადმოიწერა ✓')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('შეცდომა: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('გამოსვლა'),
+        content: const Text('Cloud სინქრონიზაცია შეჩერდება. გამოსვლა?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('გაუქმება')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('გამოსვლა')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await FirebaseAuth.instance.signOut();
+    await widget.notifier.setStorageMode(StorageMode.local);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = widget.settings.storageMode;
+    final userAsync = ref.watch(authProvider);
+    final user = userAsync.valueOrNull;
+
+    return Column(
+      children: [
+        // Mode selector
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: SegmentedButton<StorageMode>(
+            segments: const [
+              ButtonSegment(
+                value: StorageMode.local,
+                icon: Icon(Icons.storage_outlined),
+                label: Text('ლოკალური'),
+              ),
+              ButtonSegment(
+                value: StorageMode.cloud,
+                icon: Icon(Icons.cloud_outlined),
+                label: Text('Cloud'),
+              ),
+            ],
+            selected: {mode},
+            onSelectionChanged: (s) async {
+              if (s.first == StorageMode.cloud) {
+                await _switchToCloud();
+              } else {
+                await _switchToLocal();
+              }
+            },
+          ),
+        ),
+
+        // Cloud status row
+        if (mode == StorageMode.cloud && user != null) ...[
+          ListTile(
+            leading: const Icon(Icons.account_circle_outlined),
+            title: const Text('ანგარიში'),
+            subtitle: Text(user.email ?? user.uid),
+            dense: true,
+            trailing: TextButton(
+              onPressed: _signOut,
+              child: const Text('გამოსვლა',
+                  style: TextStyle(color: Colors.red)),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('Cloud → ლოკალური'),
+            subtitle: const Text('Cloud-ის ჩანაწერები ამ მოწყობილობაზე'),
+            dense: true,
+            trailing: _busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : IconButton(
+                    icon: const Icon(Icons.sync),
+                    onPressed: _downloadCloud,
+                  ),
+          ),
+        ],
+
+        if (mode == StorageMode.local)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(children: [
+              const Icon(Icons.info_outline, size: 14, color: Colors.grey),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'ჩანაწერები ინახება მხოლოდ ამ მოწყობილობაზე',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.grey),
+                ),
+              ),
+            ]),
+          ),
+      ],
+    );
+  }
+}
+
+// ── Email field ─────────────────────────────────────────────────────────────────
 
 class _AddEmailField extends StatefulWidget {
   final Future<void> Function(String) onAdd;

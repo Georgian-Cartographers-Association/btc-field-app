@@ -4,12 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants.dart';
 
+/// Where BTK records are persisted.
+enum StorageMode {
+  local, // SQLite (Android) / SharedPreferences (web) — default
+  cloud, // Firestore — requires Firebase Auth
+}
+
 class SettingsState {
   final ThemeMode themeMode;
   final Locale locale;
   final List<String> emails;
   final int pdfPage;
   final bool screenAwake; // keep screen on while map is open
+  final StorageMode storageMode;
 
   const SettingsState({
     this.themeMode = ThemeMode.system,
@@ -17,6 +24,7 @@ class SettingsState {
     this.emails = const [],
     this.pdfPage = 0,
     this.screenAwake = false,
+    this.storageMode = StorageMode.local,
   });
 
   SettingsState copyWith({
@@ -25,6 +33,7 @@ class SettingsState {
     List<String>? emails,
     int? pdfPage,
     bool? screenAwake,
+    StorageMode? storageMode,
   }) =>
       SettingsState(
         themeMode: themeMode ?? this.themeMode,
@@ -32,6 +41,7 @@ class SettingsState {
         emails: emails ?? this.emails,
         pdfPage: pdfPage ?? this.pdfPage,
         screenAwake: screenAwake ?? this.screenAwake,
+        storageMode: storageMode ?? this.storageMode,
       );
 }
 
@@ -46,6 +56,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     final localeStr = prefs.getString(AppConstants.prefLocale) ?? 'ka';
     final pdfPage = prefs.getInt(AppConstants.prefPdfPage) ?? 0;
     final screenAwake = prefs.getBool('screen_awake') ?? false;
+    final storageModeStr = prefs.getString('storage_mode') ?? 'local';
 
     // Migrate: old single-email string → new list
     List<String> emails = [];
@@ -64,6 +75,8 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
       emails: emails,
       pdfPage: pdfPage,
       screenAwake: screenAwake,
+      storageMode:
+          storageModeStr == 'cloud' ? StorageMode.cloud : StorageMode.local,
     );
   }
 
@@ -122,6 +135,13 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = state.copyWith(pdfPage: page);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(AppConstants.prefPdfPage, page);
+  }
+
+  Future<void> setStorageMode(StorageMode mode) async {
+    state = state.copyWith(storageMode: mode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        'storage_mode', mode == StorageMode.cloud ? 'cloud' : 'local');
   }
 }
 

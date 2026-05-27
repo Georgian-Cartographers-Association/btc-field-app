@@ -1,45 +1,40 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import '../core/constants.dart';
-import '../database/btk_database.dart';
 import '../models/btk_record.dart';
-import '../services/migration_service.dart';
+import '../repositories/cloud_repository.dart';
+import '../repositories/data_repository.dart';
+import '../repositories/local_repository.dart';
+import 'auth_provider.dart';
+import 'settings_provider.dart';
 
 class BtkNotifier extends StateNotifier<List<BtkRecord>> {
-  BtkNotifier() : super([]) {
-    _load();
+  BtkNotifier(this._repo) : super([]) {
+    _init();
   }
 
-  // ── Load ──────────────────────────────────────────────────────────────────
+  final DataRepository _repo;
+  StreamSubscription<List<BtkRecord>>? _cloudSub;
 
-  Future<void> _load() async {
-    if (kIsWeb) {
-      await _loadWeb();
+  void _init() {
+    final s = _repo.stream;
+    if (s != null) {
+      // Cloud: subscribe to Firestore real-time stream
+      _cloudSub = s.listen((records) {
+        if (mounted) state = records;
+      });
     } else {
-      await MigrationService.migrateIfNeeded();
-      state = await BtkDatabase.getAllRecords();
+      // Local: one-shot load
+      _repo.getAll().then((records) {
+        if (mounted) state = records;
+      });
     }
   }
 
-  Future<void> _loadWeb() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(AppConstants.prefRecords);
-    if (raw != null) {
-      final list = jsonDecode(raw) as List<dynamic>;
-      state =
-          list.map((e) => BtkRecord.fromJson(e as Map<String, dynamic>)).toList();
-    }
-  }
-
-  Future<void> _saveWeb() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      AppConstants.prefRecords,
-      jsonEncode(state.map((r) => r.toJson()).toList()),
-    );
+  @override
+  void dispose() {
+    _cloudSub?.cancel();
+    super.dispose();
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
@@ -52,11 +47,7 @@ class BtkNotifier extends StateNotifier<List<BtkRecord>> {
       longitude: lon,
     );
     state = [...state, record];
-    if (kIsWeb) {
-      await _saveWeb();
-    } else {
-      await BtkDatabase.upsertRecord(record);
-    }
+    await _repo.upsert(record);
     return record;
   }
 
@@ -65,22 +56,30 @@ class BtkNotifier extends StateNotifier<List<BtkRecord>> {
       for (final r in state)
         if (r.id == record.id) record else r
     ];
-    if (kIsWeb) {
-      await _saveWeb();
-    } else {
-      await BtkDatabase.upsertRecord(record);
-    }
+    await _repo.upsert(record);
   }
 
   Future<void> remove(String id) async {
     state = state.where((r) => r.id != id).toList();
-    if (kIsWeb) {
-      await _saveWeb();
-    } else {
-      await BtkDatabase.deleteRecord(id); // photos cascade-deleted by FK
-    }
+    await _repo.delete(id);
   }
 }
 
+/// Provider automatically recreates BtkNotifier when storage mode or
+/// auth state changes — switching from local ↔ cloud reloads data.
 final btkProvider =
-    StateNotifierProvider<BtkNotifier, List<BtkRecord>>((ref) => BtkNotifier());
+    StateNotifierProvider<BtkNotifier, List<BtkRecord>>((ref) {
+  final mode =
+      ref.watch(settingsProvider.select((s) => s.storageMode));
+  final authAsync = ref.watch(authProvider);
+  final user = authAsync.valueOrNull;
+
+  final DataRepository repo;
+  if (mode == StorageMode.cloud && user != null) {
+    repo = CloudRepository(uid: user.uid);
+  } else {
+    repo = LocalRepository();
+  }
+
+  return BtkNotifier(repo);
+});
